@@ -178,6 +178,20 @@ duplicate key, permanently locking that account out. Everything that writes
 2. Public deck share links at `/d/[slug]` (schema is ready).
 3. First real Scryfall mirror population, then import a collection.
 
+### Setting a password
+
+There is no password-reset flow yet, and a magic-link-only user has
+`password_hash` NULL by design, so a fresh account gets its first password here:
+
+```sh
+docker compose exec app node scripts/set-password.mjs you@example.com
+```
+
+Reads from a hidden prompt rather than argv, so the password does not land in
+shell history or in `ps`. `--clear` removes it again. Piping also works
+(`printf 'pw\n' | docker compose exec -T app node scripts/…`) but exposes it to
+history.
+
 ## Known gaps
 
 - The UI is read-only. There is no way to create or edit a deck in the browser

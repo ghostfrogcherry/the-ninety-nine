@@ -7,7 +7,13 @@ const nextConfig: NextConfig = {
 
   // `pg` uses dynamic requires that the bundler cannot statically resolve.
   // Without this, server components that touch the pool fail at runtime.
-  serverExternalPackages: ["pg"],
+  //
+  // `bcryptjs` does not need this for the app itself — webpack bundles it into
+  // the server output happily. But being external is what puts a real copy in
+  // `.next/standalone/node_modules`, and the maintenance scripts shipped in the
+  // same image (scripts/set-password.mjs) import it directly. Bundled, it is
+  // unreachable from them and they die with ERR_MODULE_NOT_FOUND.
+  serverExternalPackages: ["pg", "bcryptjs"],
 
   images: {
     // Card art is served by Scryfall's CDN. Only image URLs are fetched live —
