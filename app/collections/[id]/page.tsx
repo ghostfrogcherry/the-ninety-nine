@@ -2,23 +2,26 @@ import { notFound, redirect } from "next/navigation";
 
 import { currentUserId, parseCollectionId } from "@/app/api/collections/access";
 import { query } from "@/lib/db";
-import { Badge, Empty, Identity, Shell, usd } from "@/app/_ui";
+import {
+  IMAGE_SQL, PAGE_SIZES, UNIT_PRICE_SQL,
+  buildWhere, isFiltered, parseFilters, withParam,
+  type View,
+} from "@/lib/collection/filters";
+import { Shell, usd } from "@/app/_ui";
+import { FilterBar, ViewToggle } from "./_filters";
+import { CardFeed, type FeedCard } from "./_feed";
 
 export const dynamic = "force-dynamic";
 
-interface CardRow extends Record<string, unknown> {
-  scryfall_id: string;
-  quantity: number;
-  finish: string;
-  name: string | null;
-  set_code: string | null;
-  collector_number: string | null;
-  rarity: string | null;
-  color_identity: string[] | null;
-  usd: string | null;
-}
+type SearchParams = Record<string, string | string[] | undefined>;
 
-export default async function CollectionPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CollectionPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SearchParams>;
+}) {
   const userId = await currentUserId();
   if (!userId) redirect("/signin");
 
@@ -29,70 +32,96 @@ export default async function CollectionPage({ params }: { params: Promise<{ id:
     "SELECT id, name FROM collections WHERE id = $1 AND user_id = $2",
     [id, userId],
   );
-  // Someone else's collection reads as missing rather than forbidden, so the
+  // Someone else's collection reads as missing rather than forbidden, so this
   // page cannot be used to enumerate which ids exist.
   if (!collection) notFound();
 
-  // LEFT JOIN scryfall_cards: the mirror is a cache and may be empty or stale,
-  // and a card the mirror has not heard of must still show its quantity rather
-  // than disappear from the owner's collection.
-  const cards = await query<CardRow>(
-    `SELECT cc.scryfall_id, cc.quantity, cc.finish,
-            s.name, s.set_code, s.collector_number, s.rarity, s.color_identity,
-            CASE WHEN cc.finish = 'foil' THEN s.prices->>'usd_foil'
-                 WHEN cc.finish = 'etched' THEN s.prices->>'usd_etched'
-                 ELSE s.prices->>'usd' END AS usd
+  const sp = await searchParams;
+  const filters = parseFilters(sp);
+  const { where, params: whereParams, orderBy } = buildWhere(filters, id);
+  const base = `/collections/${id}`;
+
+  // One aggregate pass over the filtered set, so the header describes what is
+  // actually on screen rather than the collection total.
+  const [totals] = await query<{ printings: string; cards: string; value: string | null }>(
+    `SELECT count(*)::text AS printings,
+            COALESCE(sum(cc.quantity),0)::text AS cards,
+            COALESCE(sum(cc.quantity * ${UNIT_PRICE_SQL}),0)::text AS value
        FROM collection_cards cc
        LEFT JOIN scryfall_cards s ON s.id = cc.scryfall_id
-      WHERE cc.collection_id = $1
-      ORDER BY s.name NULLS LAST, s.set_code, s.collector_number`,
+      WHERE ${where}`,
+    whereParams,
+  );
+
+  const perPage = PAGE_SIZES[filters.view];
+
+  // One row beyond the page, purely to tell the feed whether to keep scrolling.
+  const fetched = await query<FeedCard & Record<string, unknown>>(
+    `SELECT cc.scryfall_id::text AS scryfall_id, cc.quantity, cc.finish,
+            s.name, s.set_code, s.collector_number, s.rarity, s.type_line, s.cmc,
+            s.color_identity,
+            ${IMAGE_SQL} AS image,
+            ${UNIT_PRICE_SQL}::text AS unit_price
+       FROM collection_cards cc
+       LEFT JOIN scryfall_cards s ON s.id = cc.scryfall_id
+      WHERE ${where}
+      ORDER BY ${orderBy}
+      LIMIT $${whereParams.length + 1}`,
+    [...whereParams, perPage + 1],
+  );
+
+  const hasMore = fetched.length > perPage;
+  const rows = hasMore ? fetched.slice(0, perPage) : fetched;
+
+  // Sets actually present in this collection, for the dropdown.
+  const setRows = await query<{ set_code: string }>(
+    `SELECT DISTINCT s.set_code
+       FROM collection_cards cc JOIN scryfall_cards s ON s.id = cc.scryfall_id
+      WHERE cc.collection_id = $1 AND s.set_code IS NOT NULL
+      ORDER BY s.set_code`,
     [id],
   );
 
-  const physical = cards.reduce((s, c) => s + c.quantity, 0);
-  const value = cards.reduce((s, c) => s + Number(c.usd ?? 0) * c.quantity, 0);
-  const unresolved = cards.filter((c) => c.name === null).length;
+  // Replayed verbatim by the feed so scrolled pages match the first render.
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (v === undefined || k === "page") continue;
+    for (const item of Array.isArray(v) ? v : [v]) if (item) qs.append(k, item);
+  }
+
+  const matched = Number(totals.printings);
 
   return (
     <Shell
       title={collection.name}
       subtitle={
-        `${cards.length} printings · ${physical} cards · ${usd(value)}` +
-        (unresolved ? ` · ${unresolved} not in the local mirror` : "")
+        <>
+          <span className="stat">{matched}</span> printings ·{" "}
+          <span className="stat">{totals.cards}</span> cards ·{" "}
+          <span className="stat">{usd(totals.value)}</span>
+          {isFiltered(filters) ? <> · <span style={{ color: "var(--yellow)" }}>filtered</span></> : null}
+          {" · "}
+          <ViewToggle current={filters.view} hrefFor={(v: View) => `${base}${withParam(sp, "view", v)}`} />
+        </>
       }
     >
-      {cards.length === 0 ? (
-        <Empty>This collection is empty.</Empty>
+      <FilterBar filters={filters} sets={setRows.map((r) => r.set_code)} action={base} />
+
+      {rows.length === 0 ? (
+        <p className="empty">
+          {isFiltered(filters) ? "Nothing matches those filters." : "This collection is empty."}
+        </p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th className="num">Qty</th>
-              <th>Card</th>
-              <th>Set</th>
-              <th>Identity</th>
-              <th className="num">Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cards.map((c) => (
-              <tr key={`${c.scryfall_id}-${c.finish}`}>
-                <td className="num">{c.quantity}</td>
-                <td>
-                  {c.name ?? <span style={{ color: "var(--dim2)" }}>{c.scryfall_id}</span>}{" "}
-                  {c.finish !== "nonfoil" ? <Badge tone="warn">{c.finish}</Badge> : null}
-                </td>
-                <td style={{ color: "var(--dim)" }}>
-                  {c.set_code ? `${c.set_code.toUpperCase()} ${c.collector_number}` : "—"}
-                </td>
-                <td>
-                  <Identity identity={c.color_identity ?? []} />
-                </td>
-                <td className="num">{usd(c.usd)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <CardFeed
+          collectionId={id}
+          // Keyed on the query so changing a filter remounts the feed rather
+          // than appending new results onto the previous filter's rows.
+          key={`${qs.toString()}|${filters.view}`}
+          initialRows={rows}
+          initialHasMore={hasMore}
+          view={filters.view}
+          queryString={qs.toString()}
+        />
       )}
     </Shell>
   );

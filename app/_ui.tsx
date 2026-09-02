@@ -1,45 +1,39 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-/** Page chrome shared by every signed-in view. */
-export function Shell({ title, subtitle, children }: {
+/** Page chrome shared by every view. */
+export function Shell({ title, subtitle, actions, children }: {
   title: string;
   subtitle?: ReactNode;
+  /** Optional controls rendered on the title row, right-aligned. */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <main style={{ maxWidth: "62rem", margin: "0 auto", padding: "2.5rem 1.5rem 4rem" }}>
-      <nav style={{ display: "flex", gap: "1.25rem", marginBottom: "2rem", fontSize: 12 }}>
-        <Link href="/">home</Link>
+    <main style={{ maxWidth: "76rem", margin: "0 auto", padding: "1.75rem 1.5rem 4rem" }}>
+      <nav className="topnav">
+        <Link href="/" className="brand">the·ninety·nine</Link>
         <Link href="/collections">collections</Link>
         <Link href="/decks">decks</Link>
       </nav>
-      <h1 style={{ margin: "0 0 0.25rem", fontSize: "1.5rem" }}>{title}</h1>
-      {subtitle ? (
-        <p style={{ margin: "0 0 2rem", color: "var(--dim)" }}>{subtitle}</p>
-      ) : (
-        <div style={{ height: "2rem" }} />
-      )}
+
+      <header style={{ display: "flex", alignItems: "baseline", gap: "1rem", flexWrap: "wrap" }}>
+        <h1 className="prompt" style={{ margin: "0 0 0.25rem", fontSize: "1.4rem" }}>{title}</h1>
+        {actions ? <span style={{ marginLeft: "auto" }}>{actions}</span> : null}
+      </header>
+
+      {subtitle
+        ? <p style={{ margin: "0 0 1.5rem", color: "var(--dim)" }}>{subtitle}</p>
+        : <div style={{ height: "1.5rem" }} />}
+
       {children}
     </main>
   );
 }
 
-/** Shown instead of a table when a query comes back empty. */
+/** Shown instead of content when a query comes back empty. */
 export function Empty({ children }: { children: ReactNode }) {
-  return (
-    <p
-      style={{
-        color: "var(--dim2)",
-        border: "1px dashed var(--border)",
-        borderRadius: 4,
-        padding: "1.5rem",
-        textAlign: "center",
-      }}
-    >
-      {children}
-    </p>
-  );
+  return <p className="empty">{children}</p>;
 }
 
 const COLORS: Record<string, string> = {
@@ -47,7 +41,7 @@ const COLORS: Record<string, string> = {
   R: "var(--red)", G: "var(--green)",
 };
 
-/** WUBRG pips. Colourless renders as a dash rather than nothing. */
+/** WUBRG pips. Colourless renders as a dash rather than as nothing at all. */
 export function Identity({ identity }: { identity: string[] }) {
   if (!identity.length) return <span style={{ color: "var(--dim2)" }}>—</span>;
   return (
@@ -84,7 +78,10 @@ export function Badge({ tone = "dim", children }: {
   );
 }
 
-/** Money is stored NUMERIC and arrives from pg as a string. Never parse to float for display. */
+/**
+ * Money arrives from `pg` as a string because the columns are NUMERIC. Format
+ * for display only — never parse to float and store the result back.
+ */
 export function usd(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   const n = typeof value === "string" ? Number(value) : value;

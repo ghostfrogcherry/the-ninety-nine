@@ -1,149 +1,295 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { currentUserId, parseCollectionId } from "@/app/api/collections/access";
-import { query } from "@/lib/db";
-import { validateCommanderDeck } from "@/lib/commander";
-import type { CommanderCard, DeckBoard, DeckEntry } from "@/lib/commander";
-import { Badge, Empty, Identity, Shell } from "@/app/_ui";
+import { pool } from "@/lib/db";
+import { validateCommanderDeck, type DeckBoard } from "@/lib/commander";
+import {
+  BOARD_LABELS, DECK_BOARDS, loadDeckContents, loadOwnedDeck, parseScope,
+  searchMirror, toDeckEntries,
+  type DeckCardDetail, type MirrorSearchRow,
+} from "@/lib/deck";
+import { Badge, Identity, Shell, usd } from "@/app/_ui";
+import { addCardAction, moveCardAction, removeCardAction, setQuantityAction } from "../_actions";
 
 export const dynamic = "force-dynamic";
 
-/**
- * A `deck_cards` row joined to its mirror card. The index signature is there to
- * satisfy `query<T extends Record<string, unknown>>`; CommanderCard is a closed
- * interface by design, so it is added here rather than loosening the library type.
- */
-interface DeckCardRow extends CommanderCard {
-  quantity: number;
-  board: DeckBoard;
-  finish: string;
-  [key: string]: unknown;
-}
+type SearchParams = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 
-export default async function DeckPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DeckPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SearchParams>;
+}) {
   const userId = await currentUserId();
   if (!userId) redirect("/signin");
 
-  const id = parseCollectionId((await params).id);
-  if (id === null) notFound();
+  const deckId = parseCollectionId((await params).id);
+  if (deckId === null) notFound();
 
-  const [deck] = await query<{ id: number; name: string; format: string }>(
-    "SELECT id, name, format FROM decks WHERE id = $1 AND user_id = $2",
-    [id, userId],
-  );
+  const deck = await loadOwnedDeck(pool, deckId, userId);
+  // Not-yours and not-real are the same 404, so this cannot enumerate deck ids.
   if (!deck) notFound();
 
-  // INNER JOIN here, unlike the collection view: legality cannot be judged on a
-  // card the mirror does not know, so an unresolved row must not silently count
-  // as legal. The count difference is surfaced below.
-  const rows = await query<DeckCardRow>(
-    `SELECT dc.quantity, dc.board, dc.finish,
-            s.id, s.oracle_id, s.name, s.set_code, s.collector_number, s.layout,
-            s.type_line, s.oracle_text, s.color_identity, s.legalities, s.card_faces
-       FROM deck_cards dc
-       JOIN scryfall_cards s ON s.id = dc.scryfall_id
-      WHERE dc.deck_id = $1
-      ORDER BY dc.board, s.name`,
-    [id],
-  );
+  const sp = await searchParams;
+  const q = one(sp.q).slice(0, 80);
+  const scope = parseScope(one(sp.scope));
 
-  const [{ total }] = await query<{ total: string }>(
-    "SELECT COUNT(*)::text AS total FROM deck_cards WHERE deck_id = $1",
-    [id],
-  );
-  const missing = Number(total) - rows.length;
+  const { cards, unresolved } = await loadDeckContents(pool, deckId, userId);
+  const results = q ? await searchMirror(pool, { userId, q, scope, limit: 30 }) : [];
 
-  const entries: DeckEntry[] = rows.map((r) => ({
-    card: r,
-    quantity: r.quantity,
-    board: r.board,
-  }));
-
-  const result = validateCommanderDeck(entries);
-  const commanders = rows.filter((r) => r.board === "commander");
-  const main = rows.filter((r) => r.board === "main");
+  const validation = validateCommanderDeck(toDeckEntries(cards));
+  const byBoard = (b: DeckBoard) => cards.filter((c) => c.board === b);
+  const base = `/decks/${deckId}`;
 
   return (
     <Shell
       title={deck.name}
       subtitle={
         <>
-          {deck.format} · {result.deckSize} cards ·{" "}
-          {result.legal ? <Badge tone="good">legal</Badge> : <Badge tone="bad">illegal</Badge>}{" "}
-          <Identity identity={result.commanderColorIdentity} />
+          {deck.format} · <span className="stat">{validation.deckSize}</span> cards ·{" "}
+          <span className={validation.legal ? "legal-ok" : "legal-bad"}>
+            {validation.legal ? "legal" : `${validation.errors.length} problem${validation.errors.length === 1 ? "" : "s"}`}
+          </span>{" "}
+          <Identity identity={validation.commanderColorIdentity} />
+          {" · "}
+          <span style={{ color: "var(--dim)" }}>
+            {usd(cards.reduce((s, c) => s + Number(c.unit_price ?? 0) * c.quantity, 0))}
+          </span>
         </>
       }
     >
-      {missing > 0 ? (
+      {unresolved > 0 ? (
         <p style={{ color: "var(--orange)" }}>
-          {missing} card{missing === 1 ? "" : "s"} could not be found in the local Scryfall
-          mirror and were excluded from validation. Refresh the mirror.
+          {unresolved} card{unresolved === 1 ? "" : "s"} in this deck are not in the local
+          Scryfall mirror and are excluded from validation. Refresh the mirror.
         </p>
       ) : null}
 
-      {result.violations.length > 0 ? (
-        <section style={{ marginBottom: "2rem" }}>
-          <h2 style={{ fontSize: "1rem" }}>Rules</h2>
-          <ul style={{ paddingLeft: "1.1rem", margin: 0 }}>
-            {result.violations.map((v, i) => (
-              <li
-                key={`${v.rule}-${i}`}
-                style={{ color: v.severity === "error" ? "var(--red)" : "var(--yellow)" }}
-              >
-                {v.message}
-                {v.cards.length ? (
-                  <span style={{ color: "var(--dim)" }}>
-                    {" "}
-                    — {v.cards.map((c) => c.name).join(", ")}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+      <div className="deck-cols">
+        <section>
+          {DECK_BOARDS.map((board) => {
+            const rows = byBoard(board);
+            if (rows.length === 0 && board !== "main" && board !== "commander") return null;
+            const count = rows.reduce((s, c) => s + c.quantity, 0);
+            return (
+              <div key={board}>
+                <h2 className="board-head">
+                  {BOARD_LABELS[board]} <span className="count">{count}</span>
+                </h2>
+                {rows.length === 0 ? (
+                  <p style={{ color: "var(--dim2)", fontSize: 12, margin: "0.3rem 0 0" }}>
+                    {board === "commander" ? "no commander set — add one from the search panel" : "empty"}
+                  </p>
+                ) : (
+                  rows.map((c) => <CardLine key={c.row_id} card={c} deckId={deckId} board={board} />)
+                )}
+              </div>
+            );
+          })}
         </section>
-      ) : rows.length > 0 ? (
-        <p style={{ color: "var(--green)" }}>No rules violations.</p>
-      ) : null}
 
-      {commanders.length > 0 ? (
-        <section style={{ marginBottom: "2rem" }}>
-          <h2 style={{ fontSize: "1rem" }}>Commander</h2>
-          {commanders.map((c) => (
-            <div key={c.id}>
-              {c.name} <Identity identity={c.color_identity ?? []} />{" "}
-              <span style={{ color: "var(--dim)" }}>{c.type_line}</span>
-            </div>
-          ))}
-        </section>
-      ) : null}
-
-      <h2 style={{ fontSize: "1rem" }}>Deck</h2>
-      {main.length === 0 ? (
-        <Empty>No cards in this deck yet.</Empty>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th className="num">Qty</th>
-              <th>Card</th>
-              <th>Type</th>
-              <th>Identity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {main.map((c) => (
-              <tr key={`${c.id}-${c.finish}`}>
-                <td className="num">{c.quantity}</td>
-                <td>{c.name}</td>
-                <td style={{ color: "var(--dim)" }}>{c.type_line}</td>
-                <td>
-                  <Identity identity={c.color_identity ?? []} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        <aside style={{ display: "grid", gap: "1rem" }}>
+          <AddPanel base={base} q={q} scope={scope} results={results} deckId={deckId} />
+          <LegalityPanel validation={validation} />
+          <CurvePanel cards={cards} />
+        </aside>
+      </div>
     </Shell>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function CardLine({ card, deckId, board }: {
+  card: DeckCardDetail; deckId: number; board: DeckBoard;
+}) {
+  // Owning fewer copies than the deck asks for is worth flagging — this is a
+  // collection app, and a deck you cannot physically build is useful to know.
+  const short = card.owned < card.quantity;
+  return (
+    <div className="rowline">
+      <form action={setQuantityAction}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <input type="hidden" name="rowId" value={card.row_id} />
+        <input
+          className="qtybox"
+          type="number"
+          name="quantity"
+          min={0}
+          max={999}
+          defaultValue={card.quantity}
+          aria-label={`Quantity of ${card.name}`}
+        />
+        <button className="mini" type="submit" title="set quantity (0 removes)">set</button>
+      </form>
+
+      <span className="grow">
+        {card.name}
+        {card.finish !== "nonfoil" ? <> <Badge tone="warn">{card.finish}</Badge></> : null}
+        <span style={{ color: "var(--dim2)", fontSize: 11 }}>
+          {" "}{card.set_code?.toUpperCase()} · {card.type_line}
+        </span>
+      </span>
+
+      <span
+        style={{ fontSize: 11, color: short ? "var(--orange)" : "var(--dim2)" }}
+        title={short ? "you own fewer copies than this deck uses" : "copies you own"}
+      >
+        {card.owned}/{card.quantity}
+      </span>
+      <Identity identity={card.color_identity ?? []} />
+      <span style={{ fontSize: 11, color: "var(--dim)", minWidth: "3.2rem", textAlign: "right" }}>
+        {usd(card.unit_price)}
+      </span>
+
+      <form action={moveCardAction}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <input type="hidden" name="rowId" value={card.row_id} />
+        <select className="mini" name="board" defaultValue={board} aria-label={`Move ${card.name}`}>
+          {DECK_BOARDS.map((b) => (
+            <option key={b} value={b}>{BOARD_LABELS[b]}</option>
+          ))}
+        </select>
+        <button className="mini" type="submit" title="move to board">→</button>
+      </form>
+
+      <form action={removeCardAction}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <input type="hidden" name="rowId" value={card.row_id} />
+        <button className="mini danger" type="submit" title="remove from deck">✕</button>
+      </form>
+    </div>
+  );
+}
+
+function AddPanel({ base, q, scope, results, deckId }: {
+  base: string; q: string; scope: string; results: MirrorSearchRow[]; deckId: number;
+}) {
+  return (
+    <div className="panel">
+      <h2>Add cards</h2>
+      {/* GET form: the search term lives in the URL, so a search survives the
+          POST-redirect of adding a card and you can add several in a row. */}
+      <form method="get" action={base} style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+        <input
+          type="text"
+          name="q"
+          defaultValue={q}
+          placeholder="card name…"
+          style={{ flex: 1, minWidth: "9rem", background: "var(--bg0)", border: "1px solid var(--border)", color: "var(--fg1)", borderRadius: 3, padding: "0.25rem 0.4rem", font: "inherit", fontSize: 12 }}
+          aria-label="Search cards"
+        />
+        <select
+          name="scope"
+          defaultValue={scope}
+          aria-label="Search scope"
+          style={{ background: "var(--bg0)", border: "1px solid var(--border)", color: "var(--fg1)", borderRadius: 3, fontSize: 12 }}
+        >
+          <option value="owned">owned</option>
+          <option value="all">all cards</option>
+        </select>
+        <button className="mini" type="submit">search</button>
+      </form>
+
+      <div style={{ marginTop: "0.6rem", maxHeight: "22rem", overflowY: "auto" }}>
+        {q === "" ? (
+          <p style={{ color: "var(--dim2)", fontSize: 11 }}>
+            Search your collection, or switch to “all cards” for the full mirror.
+            Nothing here calls Scryfall — it is all local.
+          </p>
+        ) : results.length === 0 ? (
+          <p style={{ color: "var(--dim2)", fontSize: 11 }}>No match in the local mirror.</p>
+        ) : (
+          results.map((r) => (
+            <form key={r.id} action={addCardAction} className="rowline" style={{ gap: "0.35rem" }}>
+              <input type="hidden" name="deckId" value={deckId} />
+              <input type="hidden" name="scryfallId" value={r.id} />
+              <input type="hidden" name="quantity" value="1" />
+              <span className="grow" style={{ fontSize: 12 }}>
+                {r.name}
+                <span style={{ color: "var(--dim2)", fontSize: 10 }}>
+                  {" "}{r.set_code?.toUpperCase()}
+                  {r.owned > 0 ? <> · owned {r.owned}</> : null}
+                  {r.legalities?.commander === "banned" ? <> · <span style={{ color: "var(--red)" }}>banned</span></> : null}
+                </span>
+              </span>
+              <Identity identity={r.color_identity ?? []} />
+              <select className="mini" name="board" defaultValue="main" aria-label="Board">
+                {DECK_BOARDS.map((b) => <option key={b} value={b}>{BOARD_LABELS[b]}</option>)}
+              </select>
+              <button className="mini" type="submit" title="add to deck">+</button>
+            </form>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LegalityPanel({ validation }: { validation: ReturnType<typeof validateCommanderDeck> }) {
+  return (
+    <div className="panel">
+      <h2>Commander legality</h2>
+      {validation.violations.length === 0 ? (
+        <p className="legal-ok" style={{ margin: 0, fontSize: 12 }}>No rules violations.</p>
+      ) : (
+        validation.violations.map((v, i) => (
+          <div key={`${v.rule}-${i}`} className={`violation${v.severity === "warning" ? " warn" : ""}`}>
+            <div style={{ fontSize: 12, color: v.severity === "error" ? "var(--red)" : "var(--yellow)" }}>
+              {v.message}
+            </div>
+            {v.cards.length ? (
+              <div style={{ fontSize: 11, color: "var(--dim)" }}>
+                {v.cards.map((c) => c.name).join(", ")}
+              </div>
+            ) : null}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** Mana curve over the main board. Lands are excluded — they have no mana value
+ *  to speak of and would swamp the 0 column. */
+function CurvePanel({ cards }: { cards: DeckCardDetail[] }) {
+  const buckets = new Array(8).fill(0) as number[];
+  let counted = 0;
+  for (const c of cards) {
+    if (c.board !== "main") continue;
+    if (/\bland\b/i.test(c.type_line ?? "")) continue;
+    const mv = Math.max(0, Math.round(c.cmc ?? 0));
+    buckets[Math.min(mv, 7)] += c.quantity;
+    counted += c.quantity;
+  }
+  const max = Math.max(1, ...buckets);
+
+  return (
+    <div className="panel">
+      <h2>Mana curve <span style={{ color: "var(--dim2)" }}>({counted} nonland)</span></h2>
+      {counted === 0 ? (
+        <p style={{ color: "var(--dim2)", fontSize: 11, margin: 0 }}>Nothing to chart yet.</p>
+      ) : (
+        <>
+          <div className="curve">
+            {buckets.map((n, i) => (
+              <div
+                key={i}
+                className="bar"
+                style={{ height: `${(n / max) * 100}%` }}
+                title={`${n} card${n === 1 ? "" : "s"} at mana value ${i === 7 ? "7+" : i}`}
+              />
+            ))}
+          </div>
+          <div className="curve-labels">
+            {buckets.map((_, i) => <span key={i}>{i === 7 ? "7+" : i}</span>)}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
