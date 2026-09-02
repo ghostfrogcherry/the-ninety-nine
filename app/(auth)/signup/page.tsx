@@ -6,7 +6,7 @@ import { signUpWithCredentials } from "@/lib/auth/actions";
 import { MAX_PASSWORD_BYTES } from "@/lib/auth/password";
 import { Field, Notice, buttonStyle, readableError } from "../_components";
 
-export const metadata = { title: "Create account · ninetynine" };
+export const metadata = { title: "Create account · The Ninety Nine" };
 
 export const dynamic = "force-dynamic";
 

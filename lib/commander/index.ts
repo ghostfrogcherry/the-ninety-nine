@@ -433,7 +433,7 @@ export function checkDeckSize(entries: readonly DeckEntry[]): RuleCheck {
     violations.push({
       rule: "deck_size",
       severity: "error",
-      message: `Deck has ${size} cards; Commander requires exactly 100 including the commander. ${fix}`,
+      message: `Deck has ${size} card${size === 1 ? "" : "s"}; Commander requires exactly 100 including the commander. ${fix}`,
       cards: [],
     });
   }

@@ -18,7 +18,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         lineHeight: 1.5,
       }}
     >
-      <h1 style={{ fontSize: "1.25rem", marginBottom: "1.5rem" }}>ninetynine</h1>
+      <h1 style={{ fontSize: "1.25rem", marginBottom: "1.5rem" }} className="prompt">the·ninety·nine</h1>
       {children}
     </main>
   );

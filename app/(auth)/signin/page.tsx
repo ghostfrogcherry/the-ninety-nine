@@ -5,7 +5,7 @@ import { auth, isEmailProviderConfigured } from "@/auth";
 import { signInWithCredentials, signInWithMagicLink } from "@/lib/auth/actions";
 import { Field, Notice, buttonStyle, readableError } from "../_components";
 
-export const metadata = { title: "Sign in · ninetynine" };
+export const metadata = { title: "Sign in · The Ninety Nine" };
 
 /**
  * The pool is opened on import, so this page must not be prerendered at build

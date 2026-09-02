@@ -83,6 +83,37 @@ h1 { text-shadow: 0 0 14px rgba(250, 189, 47, 0.18); }
 .blink { animation: blink 1.1s steps(2, start) infinite; }
 @keyframes blink { to { opacity: 0.25; } }
 
+/* ---- form controls (base) --------------------------------------------
+ *
+ * Bare inputs, not just .filters ones. Without this a form that doesn't opt
+ * into a wrapper class renders with the browser's white default on a near-black
+ * page — which is exactly how the sign-in form shipped.
+ */
+
+input, select, textarea, button {
+  font: inherit;
+  color: var(--fg1);
+  background: var(--bg0);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.3rem 0.45rem;
+}
+input::placeholder, textarea::placeholder { color: var(--dim2); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--aqua);
+  box-shadow: 0 0 0 1px var(--aqua-dim);
+}
+button {
+  background: var(--bg3);
+  border-color: var(--yellow-dim);
+  color: var(--yellow);
+  cursor: pointer;
+}
+button:hover { background: var(--bg4); box-shadow: var(--glow); }
+/* Chips paint their own box; keep the base rules off the hidden checkbox. */
+.chip input { border: 0; padding: 0; background: none; }
+
 /* ---- nav ------------------------------------------------------------- */
 
 .topnav {
@@ -281,11 +312,17 @@ tr:hover td { background: var(--bg1); }
   gap: 1.5rem;
   align-items: start;
 }
+/* Grid items default to min-width:auto, so a wide child (a long card name plus
+   two selects in the add-card list) pushes the sidebar past its 22rem track and
+   off the viewport, taking the search and + buttons with it. */
+.deck-cols > * { min-width: 0; }
 @media (max-width: 900px) {
   .deck-cols { grid-template-columns: minmax(0, 1fr); }
 }
 
 .panel {
+  min-width: 0;
+  overflow-wrap: anywhere;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg1);
@@ -324,11 +361,14 @@ tr:hover td { background: var(--bg1); }
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Wrap rather than overflow: the add-card rows carry a name, colour pips, a
+     board select and a button, which will not fit a 22rem column on one line. */
+  flex-wrap: wrap;
   padding: 0.25rem 0.4rem;
   border-bottom: 1px solid var(--bg2);
 }
 .rowline:hover { background: var(--bg1); }
-.rowline .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rowline .grow { flex: 1 1 8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rowline form { display: inline-flex; gap: 0.25rem; align-items: center; margin: 0; }
 
 .mini {

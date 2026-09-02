@@ -22,6 +22,19 @@ export const TYPES = [
 
 export const FINISHES = ["nonfoil", "foil", "etched"] as const;
 
+/**
+ * The per-row unit price, finish-aware.
+ *
+ * Foil and non-foil of one printing are different money, so a single
+ * `prices->>'usd'` would misprice every foil in the collection.
+ */
+export const UNIT_PRICE_SQL = `
+  CASE cc.finish
+    WHEN 'foil'   THEN (s.prices->>'usd_foil')::numeric
+    WHEN 'etched' THEN (s.prices->>'usd_etched')::numeric
+    ELSE (s.prices->>'usd')::numeric
+  END`;
+
 export type SortKey =
   | "name" | "price_desc" | "price_asc" | "cmc" | "cmc_desc"
   | "rarity" | "set" | "quantity" | "added";
@@ -35,8 +48,13 @@ export type SortKey =
  */
 const SORTS: Record<SortKey, string> = Object.assign(Object.create(null) as Record<SortKey, string>, {
   name: "s.name ASC, s.set_code ASC",
-  price_desc: "unit_price DESC NULLS LAST, s.name ASC",
-  price_asc: "unit_price ASC NULLS LAST, s.name ASC",
+  // Deliberately the EXPRESSION, not the `unit_price` SELECT alias. The
+  // pages cast that alias to ::text so it serialises cleanly into the client
+  // feed, and ordering by a text alias sorts lexically -- "9.90" ranked above
+  // "36.12". Ordering by the numeric expression is immune to what any caller
+  // does in its SELECT list.
+  price_desc: `${UNIT_PRICE_SQL} DESC NULLS LAST, s.name ASC`,
+  price_asc: `${UNIT_PRICE_SQL} ASC NULLS LAST, s.name ASC`,
   cmc: "s.cmc ASC NULLS LAST, s.name ASC",
   cmc_desc: "s.cmc DESC NULLS LAST, s.name ASC",
   // Rarity is a string in the mirror, so order it by meaning rather than
@@ -134,19 +152,6 @@ export function isFiltered(f: Filters): boolean {
     f.priceMin !== null || f.priceMax !== null,
   );
 }
-
-/**
- * The per-row unit price, finish-aware.
- *
- * Foil and non-foil of one printing are different money, so a single
- * `prices->>'usd'` would misprice every foil in the collection.
- */
-export const UNIT_PRICE_SQL = `
-  CASE cc.finish
-    WHEN 'foil'   THEN (s.prices->>'usd_foil')::numeric
-    WHEN 'etched' THEN (s.prices->>'usd_etched')::numeric
-    ELSE (s.prices->>'usd')::numeric
-  END`;
 
 /**
  * Image URL, with the multi-face fallback.

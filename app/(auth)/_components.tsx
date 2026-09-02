@@ -11,8 +11,8 @@ export const fieldStyle: CSSProperties = {
   padding: ".5rem",
   marginTop: ".25rem",
   marginBottom: ".75rem",
-  border: "1px solid #999",
-  borderRadius: "4px",
+  // Colours come from globals.css so this matches the rest of the app;
+  // hardcoding a light border here is what made the form render white.
   font: "inherit",
   boxSizing: "border-box",
 };

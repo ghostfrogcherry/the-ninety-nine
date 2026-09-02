@@ -476,6 +476,13 @@ describe("sort keys resolve only to whitelisted ORDER BY fragments", () => {
         "s.collector_number", "s.cmc", "s.rarity", "cc.quantity", "cc.added_at",
         "ASC", "DESC", "NULLS", "LAST", "CASE", "WHEN", "THEN", "ELSE", "END",
         "mythic", "rare", "uncommon", "common",
+        // The price sorts inline UNIT_PRICE_SQL rather than referencing the
+        // `unit_price` SELECT alias. That is deliberate: the pages cast that
+        // alias to ::text so it serialises into the client feed, and ordering
+        // by a text alias sorted lexically -- "9.90" above "36.12". These are
+        // the identifiers that expression legitimately contains.
+        "cc.finish", "finish", "s.prices", "prices", "numeric", "usd", "usd_foil",
+        "usd_etched", "foil", "etched",
       ]);
       for (const id of identifiers) {
         assert.ok(allowed.has(id), `unexpected identifier ${id} in ORDER BY fragment`);
@@ -493,8 +500,25 @@ describe("sort keys resolve only to whitelisted ORDER BY fragments", () => {
   });
 
   it("sorts price NULLS LAST in BOTH directions", () => {
-    assert.match(buildWhere(f({ sort: "price_asc" }), 1).orderBy, /unit_price ASC NULLS LAST/);
-    assert.match(buildWhere(f({ sort: "price_desc" }), 1).orderBy, /unit_price DESC NULLS LAST/);
+    // Asserts the PROPERTY, not the spelling. The fragment used to reference the
+    // `unit_price` SELECT alias; it now inlines the numeric expression, because
+    // the pages cast that alias to ::text and ordering by text sorted "9.90"
+    // above "36.12". Pinning the alias name would have failed the fix.
+    assert.match(buildWhere(f({ sort: "price_asc" }), 1).orderBy, /ASC NULLS LAST/);
+    assert.match(buildWhere(f({ sort: "price_desc" }), 1).orderBy, /DESC NULLS LAST/);
+  });
+
+  it("orders price by a numeric expression, never a text alias", () => {
+    // The regression guard for the bug above: ::numeric must appear, and the
+    // bare `unit_price` alias must not be what is ordered on.
+    for (const key of ["price_asc", "price_desc"] as const) {
+      const frag = buildWhere(f({ sort: key }), 1).orderBy;
+      assert.match(frag, /::numeric/, `${key} must sort on the numeric expression`);
+      assert.ok(
+        !/^\s*unit_price\s+(ASC|DESC)/.test(frag),
+        `${key} must not order on the unit_price alias — callers cast it to ::text`,
+      );
+    }
   });
 
   it("falls back to the name fragment for an unknown key, end to end", () => {
