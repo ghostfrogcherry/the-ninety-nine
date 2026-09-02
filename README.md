@@ -7,7 +7,8 @@ Named for the ninety-nine cards that sit behind a commander.
 
 ## Status
 
-Backend is built and tested. There is no collection/deck UI yet.
+Backend is built and tested, with read-only views on top. Deck building in the
+browser is the main thing still missing.
 
 | Piece | State |
 |---|---|
@@ -18,7 +19,8 @@ Backend is built and tested. There is no collection/deck UI yet.
 | Commander validation (`lib/commander/`) | Done — 32 tests, mutation-checked |
 | Auth.js v5 (`auth.ts`, `lib/auth/`) | Done — sign-in verified end-to-end over HTTP |
 | API routes (`app/api/collections/`) | Done |
-| **Collection / deck UI** | **Not built** — `/collections` and `/decks` 404 behind auth |
+| Collection + deck UI | Done — read-only views, verified against a running stack |
+| **Deck editing** | **Not built** — decks can be read and validated, not built in the UI |
 | **Public deck share links** (`/d/[slug]`) | **Not built** — schema supports it (`decks.public_slug`) |
 
 92 tests pass; `tsc --noEmit` is clean.
@@ -142,10 +144,21 @@ duplicate key, permanently locking that account out. Everything that writes
   authenticates against a lowercase-stored row.
 - Commander rules are mutation-tested — the library was deliberately broken 12
   ways to confirm the suite catches each one.
+- UI, against the running stack with the fixture loaded: `/collections` lists
+  19 printings / 48 cards / $62.17, matching the `collection_values` view to the
+  cent, and the collection view renders foil and non-foil of one printing as two
+  rows at genuinely different prices ($0.35 / $0.49).
+
+## Next
+
+1. Deck editing in the UI.
+2. Public deck share links at `/d/[slug]` (schema is ready).
+3. First real Scryfall mirror population, then import a collection.
 
 ## Known gaps
 
-- No UI for collections or decks; the routes exist and 404.
+- The UI is read-only. There is no way to create or edit a deck in the browser
+  yet; decks must be inserted directly, and are then rendered and validated.
 - `middleware.ts` uses a convention Next 16 deprecates in favour of `proxy.ts`.
   It works and is warned about on every build. Codemod:
   `npx @next/codemod@canary middleware-to-proxy .`
@@ -153,9 +166,3 @@ duplicate key, permanently locking that account out. Everything that writes
   tested against a fake HTTP server with real card objects, including the
   early-exit guard, gzip, chunk-boundary streaming, and price snapshotting.
 - Magic-link sign-in has never been exercised — no SMTP configured.
-
-## Next
-
-1. Collection and deck UI.
-2. Public deck share links at `/d/[slug]` (schema is ready).
-3. First real Scryfall mirror population, then import a collection.

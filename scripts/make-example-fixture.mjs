@@ -38,13 +38,13 @@ const rows = [
 
   // Foil and non-foil of ONE printing. Must both survive import, and they carry
   // different prices. Folding these together is the bug the schema guards against.
-  { n: "Involuntary Cooldown", sc: "BRO", sn: BROTHERS_WAR, cn: "53", r: "common", q: 2, f: false, p: "0.35" },
-  { n: "Involuntary Cooldown", sc: "BRO", sn: BROTHERS_WAR, cn: "53", r: "common", q: 1, f: true, p: "0.49" },
+  { n: "Involuntary Cooldown", sc: "BRO", sn: BROTHERS_WAR, cn: "53", r: "common", q: 2, f: false, p: "0.35", type: "Instant", ci: ["U"] },
+  { n: "Involuntary Cooldown", sc: "BRO", sn: BROTHERS_WAR, cn: "53", r: "common", q: 1, f: true, p: "0.49", type: "Instant", ci: ["U"] },
 
   // Names containing " // " — split cards and modal DFCs. A greedy parser eats these.
-  { n: "Makindi Stampede // Makindi Mesas", sc: "ZNR", sn: "Zendikar Rising", cn: "26", r: "rare", q: 2, f: false, p: "0.35" },
-  { n: "Makindi Stampede // Makindi Mesas", sc: "ZNR", sn: "Zendikar Rising", cn: "26", r: "rare", q: 1, f: true, p: "0.79" },
-  { n: "Ondu Inversion // Ondu Skyruins", sc: "ZNR", sn: "Zendikar Rising", cn: "30", r: "rare", q: 1, f: false, p: "1.99" },
+  { n: "Makindi Stampede // Makindi Mesas", sc: "ZNR", sn: "Zendikar Rising", cn: "26", r: "rare", q: 2, f: false, p: "0.35", type: "Sorcery // Land", ci: ["W"] },
+  { n: "Makindi Stampede // Makindi Mesas", sc: "ZNR", sn: "Zendikar Rising", cn: "26", r: "rare", q: 1, f: true, p: "0.79", type: "Sorcery // Land", ci: ["W"] },
+  { n: "Ondu Inversion // Ondu Skyruins", sc: "ZNR", sn: "Zendikar Rising", cn: "30", r: "rare", q: 1, f: false, p: "1.99", type: "Sorcery // Land", ci: ["W"] },
 
   // Non-numeric collector numbers — the parseInt() trap. parseInt("pp319sb") is 319.
   { n: "Homarid", sc: "FEM", sn: "Fallen Empires", cn: "19b", r: "common", q: 1, f: false, p: "0.25" },
@@ -85,6 +85,23 @@ const lines = [];
  */
 const compact = [];
 
+/**
+ * Prices per printing, keyed by the id both finishes share.
+ *
+ * A printing owned in both finishes must carry BOTH `usd` and `usd_foil`, the
+ * way Scryfall really ships it. Deriving the mirror row from whichever line
+ * came first leaves the other finish null, which then reads as a worthless
+ * card anywhere prices are looked up off `scryfall_cards` rather than off
+ * `card_price_history`.
+ */
+const priceFor = new Map();
+for (const r of rows) {
+  const id = uid(`${r.sc}|${r.cn}|${r.n}`);
+  const entry = priceFor.get(id) ?? { usd: null, usd_foil: null };
+  entry[r.f ? "usd_foil" : "usd"] = r.p;
+  priceFor.set(id, entry);
+}
+
 for (const r of rows) {
   const id = uid(`${r.sc}|${r.cn}|${r.n}`);
   compact.push({ n: r.n, sc: r.sc, sn: r.sn, cn: r.cn, f: r.f, r: r.r, q: r.q, id, p: r.p });
@@ -103,7 +120,7 @@ for (const r of rows) {
       oracle_text: r.text ?? "",
       color_identity: r.ci ?? [],
       legalities: { commander: r.legal ?? "legal" },
-      prices: { usd: r.p, usd_foil: r.f ? r.p : null },
+      prices: priceFor.get(id),
       finishes: ["nonfoil", "foil"],
     });
   }

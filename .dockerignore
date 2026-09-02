@@ -1,0 +1,23 @@
+# Keep the build context small and readable.
+#
+# data/ matters most: it holds the Postgres data directory (root-owned, so the
+# daemon cannot even stat it and the build fails outright) and the ~500MB
+# Scryfall bulk mirror. Neither belongs in an image layer.
+data/
+
+node_modules/
+.next/
+out/
+
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+
+# The real collection scans, if any are sitting here.
+db/seed/collection-batch-*
+db/seed/*-card-index.html
+
+README.md
+*.md

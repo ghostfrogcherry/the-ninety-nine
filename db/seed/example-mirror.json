@@ -80,15 +80,17 @@
     "collector_number": "53",
     "rarity": "common",
     "layout": "normal",
-    "type_line": "Creature — Fixture",
+    "type_line": "Instant",
     "oracle_text": "",
-    "color_identity": [],
+    "color_identity": [
+      "U"
+    ],
     "legalities": {
       "commander": "legal"
     },
     "prices": {
       "usd": "0.35",
-      "usd_foil": null
+      "usd_foil": "0.49"
     },
     "finishes": [
       "nonfoil",
@@ -104,15 +106,17 @@
     "collector_number": "26",
     "rarity": "rare",
     "layout": "modal_dfc",
-    "type_line": "Creature — Fixture",
+    "type_line": "Sorcery // Land",
     "oracle_text": "",
-    "color_identity": [],
+    "color_identity": [
+      "W"
+    ],
     "legalities": {
       "commander": "legal"
     },
     "prices": {
       "usd": "0.35",
-      "usd_foil": null
+      "usd_foil": "0.79"
     },
     "finishes": [
       "nonfoil",
@@ -128,9 +132,11 @@
     "collector_number": "30",
     "rarity": "rare",
     "layout": "modal_dfc",
-    "type_line": "Creature — Fixture",
+    "type_line": "Sorcery // Land",
     "oracle_text": "",
-    "color_identity": [],
+    "color_identity": [
+      "W"
+    ],
     "legalities": {
       "commander": "legal"
     },
@@ -360,7 +366,7 @@
       "commander": "legal"
     },
     "prices": {
-      "usd": "37.99",
+      "usd": null,
       "usd_foil": "37.99"
     },
     "finishes": [
