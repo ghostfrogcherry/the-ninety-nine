@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { currentUserId } from "@/app/api/collections/access";
-import { pool } from "@/lib/db";
+import { pool, query } from "@/lib/db";
+import { disableSharing, enableSharing } from "@/app/d/_share";
 import {
   addDeckCard, createDeck, loadOwnedDeck, moveDeckCard, removeDeckCard,
   setDeckCardQuantity,
@@ -20,6 +21,10 @@ import {
  * trusting the deck id in the form. A form field is user input; a hidden input
  * is not a permission.
  */
+
+/** The `SqlExec` shape app/d/_share.ts asks for, backed by the shared pool. */
+const exec = (text: string, params: unknown[]) =>
+  query<Record<string, unknown>>(text, params);
 
 /** Ownership gate shared by every mutation. Throws rather than returning, so a
  *  caller cannot forget to check. */
@@ -79,6 +84,28 @@ export async function removeCardAction(formData: FormData) {
 
   await removeDeckCard(pool, deckId, rowId);
   revalidatePath(`/decks/${deckId}`);
+}
+
+/**
+ * Publish a deck at /d/<slug>, or rotate an existing slug.
+ *
+ * Rotating is the "this link leaked" button: the old URL stops resolving the
+ * moment the new slug lands. Re-sharing without rotating deliberately restores
+ * the SAME url, so a link a friend bookmarked keeps working.
+ */
+export async function shareDeckAction(formData: FormData) {
+  const { userId, deckId } = await ownedDeckOr404(parseId(formData.get("deckId")));
+  const rotate = formData.get("rotate") === "1";
+  await enableSharing(exec, deckId, userId, { rotate });
+  revalidatePath(`/decks/${deckId}`);
+  revalidatePath("/decks");
+}
+
+export async function unshareDeckAction(formData: FormData) {
+  const { userId, deckId } = await ownedDeckOr404(parseId(formData.get("deckId")));
+  await disableSharing(exec, deckId, userId);
+  revalidatePath(`/decks/${deckId}`);
+  revalidatePath("/decks");
 }
 
 export async function moveCardAction(formData: FormData) {

@@ -10,7 +10,10 @@ import {
   type DeckCardDetail, type MirrorSearchRow,
 } from "@/lib/deck";
 import { Badge, Identity, Shell, usd } from "@/app/_ui";
-import { addCardAction, moveCardAction, removeCardAction, setQuantityAction } from "../_actions";
+import {
+  addCardAction, moveCardAction, removeCardAction, setQuantityAction,
+  shareDeckAction, unshareDeckAction,
+} from "../_actions";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,7 @@ export default async function DeckPage({
   return (
     <Shell
       title={deck.name}
+      actions={<ShareControl deckId={deckId} isPublic={deck.is_public} slug={deck.public_slug} />}
       subtitle={
         <>
           {deck.format} · <span className="stat">{validation.deckSize}</span> cards ·{" "}
@@ -103,6 +107,42 @@ export default async function DeckPage({
 }
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * Share toggle.
+ *
+ * "unshare" leaves the slug in place so re-sharing restores the same link a
+ * friend may have bookmarked; "rotate" is the separate, explicit button for
+ * when the point IS to kill the old URL.
+ */
+function ShareControl({ deckId, isPublic, slug }: {
+  deckId: number; isPublic: boolean; slug: string | null;
+}) {
+  if (!isPublic) {
+    return (
+      <form action={shareDeckAction} style={{ display: "inline-flex", gap: "0.4rem" }}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <button className="mini" type="submit" title="publish at a public link">share</button>
+      </form>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center", fontSize: 11 }}>
+      <Link href={`/d/${slug}`} title="open the public page">/d/{slug?.slice(0, 8)}…</Link>
+      <form action={shareDeckAction} style={{ display: "inline" }}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <input type="hidden" name="rotate" value="1" />
+        <button className="mini" type="submit" title="issue a new link; the old one stops working">
+          rotate
+        </button>
+      </form>
+      <form action={unshareDeckAction} style={{ display: "inline" }}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <button className="mini danger" type="submit" title="make private again">unshare</button>
+      </form>
+    </span>
+  );
+}
 
 function CardLine({ card, deckId, board }: {
   card: DeckCardDetail; deckId: number; board: DeckBoard;
