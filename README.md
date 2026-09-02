@@ -1,7 +1,7 @@
 # The Ninety Nine
 
 Self-hosted MTG collection tracker and Commander deck builder — a Moxfield-lite
-for one household. Runs alongside an existing arr stack.
+for one household.
 
 Named for the ninety-nine cards that sit behind a commander.
 
