@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { currentUserId } from "@/app/api/collections/access";
 import { pool, query } from "@/lib/db";
 import { disableSharing, enableSharing } from "@/app/d/_share";
+import { applyDeckList, parseDeckList, resolveDeckList } from "@/lib/deck/decklist";
 import {
   addDeckCard, createDeck, loadOwnedDeck, moveDeckCard, removeDeckCard,
   setDeckCardQuantity,
@@ -84,6 +85,43 @@ export async function removeCardAction(formData: FormData) {
 
   await removeDeckCard(pool, deckId, rowId);
   revalidatePath(`/decks/${deckId}`);
+}
+
+/**
+ * Bulk import: paste a decklist.
+ *
+ * The result summary rides back on the query string rather than in a session or
+ * a flash cookie — it is a handful of counts, it should survive a refresh, and
+ * it keeps the action free of any state the next request has to clean up.
+ * Unresolved lines are carried too, so the user sees exactly what did not land
+ * instead of a silent card-count discrepancy.
+ */
+export async function importDeckListAction(formData: FormData) {
+  const { userId, deckId } = await ownedDeckOr404(parseId(formData.get("deckId")));
+
+  const text = String(formData.get("list") ?? "");
+  const board = parseBoard(formData.get("board")) ?? "main";
+  if (text.trim() === "") redirect(`/decks/${deckId}`);
+
+  const parsed = parseDeckList(text, board);
+  const { resolved, unresolved } = await resolveDeckList(pool, parsed.lines, userId);
+  const applied = await applyDeckList(pool, deckId, resolved);
+
+  const missed = [...unresolved.map((l) => l.raw), ...parsed.errors.map((e) => e.raw)]
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const qs = new URLSearchParams({
+    added: String(applied.cards),
+    rows: String(applied.rows),
+  });
+  // Cap what goes in the URL; a paste of pure junk should not produce a
+  // multi-kilobyte redirect.
+  for (const m of missed.slice(0, 12)) qs.append("missed", m.slice(0, 80));
+  if (missed.length > 12) qs.set("more", String(missed.length - 12));
+
+  revalidatePath(`/decks/${deckId}`);
+  redirect(`/decks/${deckId}?${qs}`);
 }
 
 /**

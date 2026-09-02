@@ -11,7 +11,7 @@ import {
 } from "@/lib/deck";
 import { Badge, Identity, Shell, usd } from "@/app/_ui";
 import {
-  addCardAction, moveCardAction, removeCardAction, setQuantityAction,
+  addCardAction, importDeckListAction, moveCardAction, removeCardAction, setQuantityAction,
   shareDeckAction, unshareDeckAction,
 } from "../_actions";
 
@@ -66,6 +66,8 @@ export default async function DeckPage({
         </>
       }
     >
+      <ImportSummary sp={sp} />
+
       {unresolved > 0 ? (
         <p style={{ color: "var(--orange)" }}>
           {unresolved} card{unresolved === 1 ? "" : "s"} in this deck are not in the local
@@ -98,6 +100,7 @@ export default async function DeckPage({
 
         <aside style={{ display: "grid", gap: "1rem" }}>
           <AddPanel base={base} q={q} scope={scope} results={results} deckId={deckId} />
+          <PastePanel deckId={deckId} />
           <LegalityPanel validation={validation} />
           <CurvePanel cards={cards} />
         </aside>
@@ -202,6 +205,67 @@ function CardLine({ card, deckId, board }: {
         <input type="hidden" name="rowId" value={card.row_id} />
         <button className="mini danger" type="submit" title="remove from deck">✕</button>
       </form>
+    </div>
+  );
+}
+
+/** Result banner for a paste import. Reads the counts the action redirected with. */
+function ImportSummary({ sp }: { sp: SearchParams }) {
+  const added = one(sp.added);
+  if (added === "") return null;
+  const missed = Array.isArray(sp.missed) ? sp.missed : sp.missed ? [sp.missed] : [];
+  const more = Number(one(sp.more) || 0);
+
+  return (
+    <div className="panel" style={{ marginBottom: "1rem", borderLeft: "2px solid var(--aqua-dim)" }}>
+      <h2>Import</h2>
+      <div style={{ fontSize: 12 }}>
+        Added <span className="stat">{added}</span> card{added === "1" ? "" : "s"} across{" "}
+        <span className="stat">{one(sp.rows)}</span> row{one(sp.rows) === "1" ? "" : "s"}.
+      </div>
+      {missed.length > 0 ? (
+        <div style={{ marginTop: "0.5rem" }}>
+          <div style={{ fontSize: 12, color: "var(--orange)" }}>
+            {missed.length + more} line{missed.length + more === 1 ? "" : "s"} could not be matched
+            in the local mirror and were NOT added:
+          </div>
+          <ul style={{ margin: "0.3rem 0 0", paddingLeft: "1.1rem", fontSize: 11, color: "var(--dim)" }}>
+            {missed.map((m, i) => <li key={i}>{m}</li>)}
+            {more > 0 ? <li>…and {more} more</li> : null}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Paste a decklist. Accepts bare names, `1x` forms, section headers and
+ *  `(SET) number` — see lib/deck/decklist.ts. */
+function PastePanel({ deckId }: { deckId: number }) {
+  return (
+    <div className="panel">
+      <h2>Paste a list</h2>
+      <form action={importDeckListAction}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <textarea
+          name="list"
+          rows={7}
+          placeholder={"1 Sol Ring\n1x Swords to Plowshares\n\nCommander\n1 Arahbo, Roar of the World"}
+          style={{ width: "100%", resize: "vertical", fontSize: 11, lineHeight: 1.45 }}
+          aria-label="Paste a decklist"
+        />
+        <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.4rem" }}>
+          <span style={{ fontSize: 11, color: "var(--dim2)" }}>default board</span>
+          <select className="mini" name="board" defaultValue="main" aria-label="Default board">
+            {DECK_BOARDS.map((b) => <option key={b} value={b}>{BOARD_LABELS[b]}</option>)}
+          </select>
+          <button className="mini" type="submit">import</button>
+        </div>
+      </form>
+      <p style={{ fontSize: 10, color: "var(--dim2)", margin: "0.5rem 0 0" }}>
+        Section headers (Commander / Deck / Sideboard) switch board. Adds to what
+        is already there rather than replacing it.
+      </p>
     </div>
   );
 }
