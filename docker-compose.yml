@@ -57,9 +57,12 @@ services:
       SCRYFALL_DATA_DIR: /data/scryfall
       TZ: ${TZ:-America/Chicago}
     volumes:
-      # The bulk mirror (~500MB compressed). Named path so the weekly refresh
-      # and the app agree on where it lives.
-      - ./data/scryfall:/data/scryfall
+      # The bulk mirror (~500MB). A NAMED volume, deliberately, not a bind
+      # mount: Docker creates a missing bind-mount directory as root while the
+      # container runs as uid 1001, so the refresh dies with EACCES on its
+      # first download. A named volume inherits ownership from the image (see
+      # the mkdir/chown in the Dockerfile) and just works.
+      - scryfall-data:/data/scryfall
     ports:
       # Bound to the Tailscale IP by default rather than 0.0.0.0 — with Caddy
       # (see docker-compose.proxy.yml) set APP_BIND=127.0.0.1 instead.
@@ -83,10 +86,13 @@ services:
       SCRYFALL_DATA_DIR: /data/scryfall
       TZ: ${TZ:-America/Chicago}
     volumes:
-      - ./data/scryfall:/data/scryfall
+      - scryfall-data:/data/scryfall
     command: ["node", "scripts/refresh-scryfall.mjs"]
     networks:
       - ninetynine
+
+volumes:
+  scryfall-data:
 
 networks:
   ninetynine:

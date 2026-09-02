@@ -42,6 +42,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/lib ./lib
 
+# The Scryfall mirror mount point, created here and owned by the runtime user.
+#
+# This is load-bearing. Docker seeds a fresh NAMED volume from the image's
+# ownership at this path, so the refresh can write as uid 1001. A bind mount
+# would not: Docker creates a missing host directory as root, and the refresh
+# then dies with EACCES on its first download. Hence a named volume in compose.
+RUN mkdir -p /data/scryfall && chown -R nextjs:nodejs /data
+
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

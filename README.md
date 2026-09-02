@@ -67,6 +67,24 @@ Weekly Scryfall refresh (cron):
 docker compose --profile refresh run --rm scryfall-refresh
 ```
 
+Real numbers from a first run: 78 MB gzipped download, 117,620 cards upserted
+in about ten seconds. A second run the same day downloads nothing and logs no
+row — it compares Scryfall's `updated_at` against the last **successful**
+import, so a previously failed run does not suppress a retry.
+
+The mirror lives in a **named volume**, not a bind mount. Docker creates a
+missing bind-mount directory as root while the container runs as uid 1001, so
+the refresh dies with `EACCES` on its first download. A named volume inherits
+ownership from the image and works out of the box.
+
+### Prices
+
+Prices come from Scryfall's `usd` / `usd_foil`, which is TCGplayer **market**
+price. Retailer exports often use a price ladder with a bulk floor instead — a
+1457-card collection valued at $1,639.67 by such an export came to $1,139.26 at
+Scryfall market. Neither is wrong; they measure different things. Every price in
+this app is Scryfall market, consistently.
+
 ## Collection data
 
 Real collections are personal data and live **outside this repo**. The committed
@@ -148,6 +166,11 @@ duplicate key, permanently locking that account out. Everything that writes
   19 printings / 48 cards / $62.17, matching the `collection_values` view to the
   cent, and the collection view renders foil and non-foil of one printing as two
   rows at genuinely different prices ($0.35 / $0.49).
+- **Against live Scryfall, not a fixture:** the refresh pulled the real
+  `default_cards` bulk file (78 MB gzipped, 117,620 cards) and a real 1457-line
+  collection then imported at **1457 printings / 1705 cards / 71 foils / 1441
+  distinct ids — 100% resolved by (set, collector), zero fallbacks, zero
+  issues.** Exactly one card in the whole collection has no Scryfall price.
 
 ## Next
 
@@ -162,7 +185,8 @@ duplicate key, permanently locking that account out. Everything that writes
 - `middleware.ts` uses a convention Next 16 deprecates in favour of `proxy.ts`.
   It works and is warned about on every build. Codemod:
   `npx @next/codemod@canary middleware-to-proxy .`
-- The Scryfall refresh has never run against the real ~500MB download. It is
-  tested against a fake HTTP server with real card objects, including the
-  early-exit guard, gzip, chunk-boundary streaming, and price snapshotting.
 - Magic-link sign-in has never been exercised — no SMTP configured.
+- `card_price_history` only starts filling on the **second** refresh, because
+  the first has no outgoing prices to preserve. `collection_values` falls back
+  to current mirror prices until then (migration 0006), so nothing reads as
+  $0.00, but price *charts* have no data for the first week.
