@@ -33,7 +33,7 @@ export type SortKey =
  * `price` sorts NULLS LAST in both directions: a card with no recorded sale is
  * unknown, not free, and burying it is right either way.
  */
-const SORTS: Record<SortKey, string> = {
+const SORTS: Record<SortKey, string> = Object.assign(Object.create(null) as Record<SortKey, string>, {
   name: "s.name ASC, s.set_code ASC",
   price_desc: "unit_price DESC NULLS LAST, s.name ASC",
   price_asc: "unit_price ASC NULLS LAST, s.name ASC",
@@ -46,7 +46,7 @@ const SORTS: Record<SortKey, string> = {
   set: "s.set_code ASC, s.collector_number ASC",
   quantity: "cc.quantity DESC, s.name ASC",
   added: "cc.added_at DESC, s.name ASC",
-};
+});
 
 export const SORT_LABELS: Array<[SortKey, string]> = [
   ["name", "Name"],
@@ -117,7 +117,10 @@ export function parseFilters(params: Params): Filters {
     cmcMax: num(params.cmcMax),
     priceMin: num(params.priceMin),
     priceMax: num(params.priceMax),
-    sort: sort in SORTS ? sort : "name",
+    // Object.hasOwn, NOT `in`: `in` walks the prototype chain, so
+    // ?sort=constructor / toString / __proto__ all passed this guard and
+    // were interpolated into ORDER BY, crashing the query with a 500.
+    sort: Object.hasOwn(SORTS, sort) ? sort : "name",
     view,
     page,
   };
@@ -199,7 +202,10 @@ export function buildWhere(f: Filters, collectionId: number): BuiltQuery {
   if (f.priceMin !== null) clauses.push(`${UNIT_PRICE_SQL} >= ${bind(f.priceMin)}`);
   if (f.priceMax !== null) clauses.push(`${UNIT_PRICE_SQL} <= ${bind(f.priceMax)}`);
 
-  return { where: clauses.join("\n    AND "), params, orderBy: SORTS[f.sort] ?? SORTS.name };
+    // Belt and braces: an inherited value is not nullish, so `??` alone would
+  // not have caught it either.
+  const orderBy = Object.hasOwn(SORTS, f.sort) ? SORTS[f.sort] : SORTS.name;
+  return { where: clauses.join("\n    AND "), params, orderBy };
 }
 
 export const PAGE_SIZES: Record<View, number> = { grid: 60, table: 250 };
