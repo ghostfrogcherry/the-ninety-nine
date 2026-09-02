@@ -1,0 +1,37 @@
+# Optional Caddy reverse proxy, same pattern as infra/nextcloud-deploy.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+#
+# With this override the app is bound to loopback and only Caddy is reachable.
+#
+# Over Tailscale alone you do NOT need this — tailnet traffic is already
+# encrypted and your-server.your-tailnet.ts.net:3010 works as-is. It matters when
+# you want a clean hostname, or when exposing publicly via Funnel.
+#
+# NOTE: ports 80/443 on the host must be free. Nothing in the media stack binds
+# them, but nextcloud-deploy's Caddy does — the two cannot both run in proxy
+# mode on this host.
+
+services:
+  app:
+    ports:
+      - "127.0.0.1:${APP_PORT:-3010}:3000"
+
+  caddy:
+    image: caddy:2
+    container_name: ninetynine-caddy
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    networks:
+      - ninetynine

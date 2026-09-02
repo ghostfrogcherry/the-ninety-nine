@@ -1,0 +1,421 @@
+[
+  {
+    "id": "da515159-8de8-40a1-a62c-b96645939ad9",
+    "oracle_id": "2517df61-fc41-4aa8-b52b-4bbf2b3d28cf",
+    "name": "Sol Ring",
+    "set_code": "c19",
+    "set_name": "Commander 2019",
+    "collector_number": "221",
+    "rarity": "uncommon",
+    "layout": "normal",
+    "type_line": "Artifact",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "1.49",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "71081f2d-b0bb-49d8-af40-598fe3a59a5c",
+    "oracle_id": "2517df61-fc41-4aa8-b52b-4bbf2b3d28cf",
+    "name": "Sol Ring",
+    "set_code": "lcc",
+    "set_name": "Lost Caverns of Ixalan Commander",
+    "collector_number": "304",
+    "rarity": "uncommon",
+    "layout": "normal",
+    "type_line": "Artifact",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "2.19",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "3151ae36-99dc-49a4-bba7-7115e5a91e8b",
+    "oracle_id": "df5aadf8-660b-4b1a-98f3-f8282ddd1366",
+    "name": "Steel Exemplar",
+    "set_code": "bro",
+    "set_name": "The Brothers’ War",
+    "collector_number": "246",
+    "rarity": "uncommon",
+    "layout": "normal",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.35",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "8de33233-37db-47aa-b911-5c6fea39d8dd",
+    "oracle_id": "39ca5fc4-a104-4669-b344-c3d45fce0598",
+    "name": "Involuntary Cooldown",
+    "set_code": "bro",
+    "set_name": "The Brothers’ War",
+    "collector_number": "53",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.35",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "3b9630fd-3a1c-49df-81a3-1d79205222ef",
+    "oracle_id": "8f9f7b2b-7fdb-49eb-9c62-32d53b1fce69",
+    "name": "Makindi Stampede // Makindi Mesas",
+    "set_code": "znr",
+    "set_name": "Zendikar Rising",
+    "collector_number": "26",
+    "rarity": "rare",
+    "layout": "modal_dfc",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.35",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "5a94f9c2-7507-4263-8c54-19199cd1f215",
+    "oracle_id": "d697bcd6-b369-47cc-b81b-21188c8193a6",
+    "name": "Ondu Inversion // Ondu Skyruins",
+    "set_code": "znr",
+    "set_name": "Zendikar Rising",
+    "collector_number": "30",
+    "rarity": "rare",
+    "layout": "modal_dfc",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "1.99",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "32f03384-eb0b-4b98-99a8-3a0df3af8a38",
+    "oracle_id": "3ba1f303-96f6-4c1b-81e1-b1fecc28ee4e",
+    "name": "Homarid",
+    "set_code": "fem",
+    "set_name": "Fallen Empires",
+    "collector_number": "19b",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.25",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "f4f545f5-2740-43fc-9268-ad32ba871c29",
+    "oracle_id": "7f09deaa-4bd6-413a-a519-c4a7ff875d9d",
+    "name": "Sea Eagle",
+    "set_code": "8ed",
+    "set_name": "Eighth Edition",
+    "collector_number": "S4",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.30",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "e19c7d14-d13a-46bd-82df-5ff6132a2223",
+    "oracle_id": "a3f37e0e-76ab-4f30-baea-8054e8bafc91",
+    "name": "Isamaru, Hound of Konda",
+    "set_code": "plst",
+    "set_name": "The List",
+    "collector_number": "CHK-19",
+    "rarity": "rare",
+    "layout": "normal",
+    "type_line": "Legendary Creature — Dog",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "3.49",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "543820d2-2227-420f-8fc7-a410ae02018e",
+    "oracle_id": "f4412e64-f21e-4778-b4c6-d84e45354523",
+    "name": "Fellwar Stone",
+    "set_code": "ptc",
+    "set_name": "Prerelease Cards",
+    "collector_number": "pp319sb",
+    "rarity": "uncommon",
+    "layout": "normal",
+    "type_line": "Artifact",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "1.10",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "a5f8c4ed-c5d6-49bd-9c48-c51130a52cc2",
+    "oracle_id": "f2df9db8-43c9-4acd-923d-3c6b2f4af4c4",
+    "name": "Reverse Damage",
+    "set_code": "ptc",
+    "set_name": "Prerelease Cards",
+    "collector_number": "et45sb",
+    "rarity": "rare",
+    "layout": "normal",
+    "type_line": "Creature — Fixture",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.95",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "b880fc18-518c-40cd-9356-5797af4c1617",
+    "oracle_id": "e0c3b028-1f0d-4d55-9ae9-681b01a539a5",
+    "name": "Forest",
+    "set_code": "znr",
+    "set_name": "Zendikar Rising",
+    "collector_number": "280",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Basic Land — Forest",
+    "oracle_text": "",
+    "color_identity": [
+      "G"
+    ],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.10",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "b98c415e-a9e8-44e6-a222-22d7782a868b",
+    "oracle_id": "58b7ead1-7bf3-4db0-9ee5-29c9bf3000de",
+    "name": "Rat Colony",
+    "set_code": "dom",
+    "set_name": "Dominaria",
+    "collector_number": "101",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Creature — Rat",
+    "oracle_text": "A deck can have any number of cards named Rat Colony.",
+    "color_identity": [
+      "B"
+    ],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.45",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "b2203c75-deac-4a56-bcad-f7b0f3fa8a74",
+    "oracle_id": "a408da2e-b8cf-49d8-8119-ecfb6f5b1300",
+    "name": "Seven Dwarves",
+    "set_code": "eld",
+    "set_name": "Throne of Eldraine",
+    "collector_number": "88",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Creature — Dwarf",
+    "oracle_text": "A deck can have up to seven cards named Seven Dwarves.",
+    "color_identity": [
+      "W"
+    ],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.35",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "7549577b-19e5-4565-9b3d-686a285c312b",
+    "oracle_id": "ca814424-1825-4be2-a612-dc1b30eda8d8",
+    "name": "Arahbo, Roar of the World",
+    "set_code": "c17",
+    "set_name": "Commander 2017",
+    "collector_number": "27",
+    "rarity": "mythic",
+    "layout": "normal",
+    "type_line": "Legendary Creature — Cat Avatar",
+    "oracle_text": "",
+    "color_identity": [
+      "G",
+      "W"
+    ],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "37.99",
+      "usd_foil": "37.99"
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "19c5899a-eef1-4dd3-a6ef-a8502cf02dc5",
+    "oracle_id": "c6000cb0-b1f3-4556-9855-71598cb5b568",
+    "name": "Black Lotus",
+    "set_code": "lea",
+    "set_name": "Limited Edition Alpha",
+    "collector_number": "232",
+    "rarity": "rare",
+    "layout": "normal",
+    "type_line": "Artifact",
+    "oracle_text": "",
+    "color_identity": [],
+    "legalities": {
+      "commander": "banned"
+    },
+    "prices": {
+      "usd": "0.00",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  },
+  {
+    "id": "89971ab8-69b0-4a03-9e54-57195872710e",
+    "oracle_id": "34ea504b-0261-4e15-8309-0ac4225dc9f4",
+    "name": "Counterspell",
+    "set_code": "mh2",
+    "set_name": "Modern Horizons 2",
+    "collector_number": "267",
+    "rarity": "common",
+    "layout": "normal",
+    "type_line": "Instant",
+    "oracle_text": "",
+    "color_identity": [
+      "U"
+    ],
+    "legalities": {
+      "commander": "legal"
+    },
+    "prices": {
+      "usd": "0.99",
+      "usd_foil": null
+    },
+    "finishes": [
+      "nonfoil",
+      "foil"
+    ]
+  }
+]

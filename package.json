@@ -1,0 +1,34 @@
+{
+  "name": "the-ninety-nine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "refresh-scryfall": "node scripts/refresh-scryfall.mjs",
+    "import-collection": "node scripts/import-collection.mjs",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "next-auth": "5.0.0-beta.32",
+    "@auth/pg-adapter": "1.11.3",
+    "pg": "8.23.0",
+    "bcryptjs": "3.0.3",
+    "zod": "4.5.4",
+    "nodemailer": "8.0.5"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/nodemailer": "7.0.4",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.8",
+    "@types/pg": "8.15.6"
+  }
+}

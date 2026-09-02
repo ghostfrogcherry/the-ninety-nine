@@ -1,0 +1,21 @@
+.env
+.env.local
+
+# Postgres data, the Scryfall bulk mirror (~500MB+), and Caddy's cert store.
+data/
+
+# Real collection scans are personal data and never belong in this repo.
+# The committed fixture is db/seed/example-*, which is synthetic.
+db/seed/collection-batch-*
+db/seed/*-card-index.html
+db/seed/*.private.*
+
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+npm-debug.log*
+yarn-error.log*
+.DS_Store

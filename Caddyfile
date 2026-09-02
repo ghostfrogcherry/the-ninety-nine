@@ -1,0 +1,13 @@
+# For a tailnet hostname (your-server.your-tailnet.ts.net) Caddy cannot get a public
+# cert from Let's Encrypt — use `tls internal`, or serve over plain HTTP and let
+# Tailscale provide the encryption. For a real public domain via Funnel, drop
+# the `tls internal` line and Caddy will provision a cert automatically.
+
+{$DOMAIN} {
+  encode gzip zstd
+
+  # Uncomment for tailnet-only hostnames:
+  # tls internal
+
+  reverse_proxy app:3000
+}

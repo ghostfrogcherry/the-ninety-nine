@@ -1,0 +1,93 @@
+# =============================================================================
+# ninetynine — self-hosted MTG collection + deck builder.
+#
+# Deploys alongside an existing arr stack. Its own bridge network;
+# nothing here joins media-net.
+#
+# PORTS: a typical arr stack already publishes 3000 (homepage), 5055 (jellyseerr),
+# 6767 (bazarr), 7878 (radarr), 8080 (qbittorrent), 8096 (jellyfin),
+# 8686 (lidarr), 8989 (sonarr) and 9696 (prowlarr). This stack uses 3010,
+# chosen to miss all of them. Postgres is deliberately NOT published — it is
+# reachable only from the compose network.
+#
+# Validate with `docker compose config --quiet` before deploying, same as the
+# media stack.
+# =============================================================================
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: ninetynine-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ninetynine}
+      POSTGRES_USER: ${POSTGRES_USER:-ninetynine}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+      # Applied in filename order on FIRST init only — an existing ./data/db
+      # is left untouched. Later schema changes need a real migration run.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - ninetynine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ninetynine} -d ${POSTGRES_DB:-ninetynine}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ninetynine-app:local
+    container_name: ninetynine-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set — generate with `openssl rand -base64 32`}
+      # Auth.js v5 builds callback URLs from this. Wrong value = redirect loops
+      # on sign-in that look like a broken login form.
+      AUTH_URL: ${AUTH_URL:-http://localhost:3010}
+      AUTH_TRUST_HOST: "true"
+      SCRYFALL_DATA_DIR: /data/scryfall
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      # The bulk mirror (~500MB compressed). Named path so the weekly refresh
+      # and the app agree on where it lives.
+      - ./data/scryfall:/data/scryfall
+    ports:
+      # Bound to the Tailscale IP by default rather than 0.0.0.0 — with Caddy
+      # (see docker-compose.proxy.yml) set APP_BIND=127.0.0.1 instead.
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3010}:3000"
+    networks:
+      - ninetynine
+
+  # Weekly Scryfall bulk refresh. Runs the same image as the app, but as a
+  # one-shot command instead of the server. `restart: no` so a failed refresh
+  # does not hot-loop against Scryfall — exactly the hammering to avoid.
+  scryfall-refresh:
+    image: ninetynine-app:local
+    container_name: ninetynine-scryfall-refresh
+    profiles: ["refresh"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      SCRYFALL_DATA_DIR: /data/scryfall
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./data/scryfall:/data/scryfall
+    command: ["node", "scripts/refresh-scryfall.mjs"]
+    networks:
+      - ninetynine
+
+networks:
+  ninetynine:
+    driver: bridge
