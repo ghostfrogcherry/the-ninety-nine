@@ -32,9 +32,20 @@ export function jsonError(status: number, error: string, extra?: Record<string, 
   return Response.json({ error, ...extra }, { status });
 }
 
+/**
+ * Ids are SERIAL, i.e. int4.
+ *
+ * The upper bound is load-bearing, not defensive dressing: `pg` infers a bind
+ * parameter's type from the column it is compared against, so a value above
+ * int4 does not match zero rows — it raises 22003 and surfaces as a 500.
+ * `/collections/2147483648` returned 500 while `/collections/999999999`
+ * correctly returned 404. Same bound as `MAX_INT4` in lib/deck.
+ */
+const MAX_INT4 = 2147483647;
+
 export function parseCollectionId(raw: string): number | null {
   const id = Number(raw);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  return Number.isInteger(id) && id > 0 && id <= MAX_INT4 ? id : null;
 }
 
 /**

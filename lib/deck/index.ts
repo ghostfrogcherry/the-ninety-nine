@@ -164,12 +164,23 @@ export function parseAddQuantity(value: unknown): number | null {
   return n === null || n === 0 ? null : n;
 }
 
+/**
+ * Largest value a Postgres `integer` (int4) can hold.
+ *
+ * SERIAL is int4, and `pg` infers a bind parameter's type from the column it is
+ * compared against — so a larger number does NOT quietly match zero rows, it
+ * raises 22003 "value out of range for type integer" and surfaces as a 500.
+ * `/decks/2147483648` returned 500 where `/decks/999999999` correctly returned
+ * 404. Bounding here is the whole reason this parse layer exists.
+ */
+export const MAX_INT4 = 2147483647;
+
 /** `decks.id` / `deck_cards.id` are SERIAL. Reject anything that is not one. */
 export function parseId(value: unknown): number | null {
   const s = typeof value === "number" ? String(value) : str(value);
   if (s === null || !/^\d+$/.test(s)) return null;
   const n = Number(s);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 && n <= MAX_INT4 ? n : null;
 }
 
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -516,10 +527,14 @@ export async function removeDeckCard(
  * when 'main' already has one yields a single row with the summed quantity
  * instead of a 23505 from the unique index.
  *
- * `board <> $3` matters more than it looks: without it, moving a row to the
- * board it is already on would have the INSERT conflict against the very row
- * the CTE is deleting, which is exactly the "cannot affect row a second time"
- * case. With it, a no-op move is a genuine no-op.
+ * `board <> $3` matters more than it looks, though not for the reason it first
+ * appears. Moving a row to the board it is already on does NOT raise "cannot
+ * affect row a second time" on Postgres 17 — measured, not assumed. What
+ * actually happens is quieter and worse: the CTE deletes the row and the INSERT
+ * lands a brand-new one, so `deck_cards.id` silently changes and `added_at`
+ * resets. That id is the handle the editor posts back, so a no-op move would
+ * invalidate the very form the user just submitted from. With the clause, a
+ * no-op move is a genuine no-op and the row id is stable.
  *
  * Returns null for a no-op or a row that is not in this deck; the caller cannot
  * distinguish them, and neither should the HTTP status.
