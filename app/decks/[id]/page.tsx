@@ -5,14 +5,14 @@ import { currentUserId, parseCollectionId } from "@/app/api/collections/access";
 import { pool } from "@/lib/db";
 import { validateCommanderDeck, type DeckBoard } from "@/lib/commander";
 import {
-  BOARD_LABELS, DECK_BOARDS, loadDeckContents, loadOwnedDeck, parseScope,
+  BOARD_LABELS, DECK_BOARDS, DECK_FORMATS, loadDeckContents, loadOwnedDeck, parseScope,
   searchMirror, toDeckEntries,
-  type DeckCardDetail, type MirrorSearchRow,
+  type DeckCardDetail, type DeckRow, type MirrorSearchRow,
 } from "@/lib/deck";
 import { Badge, Identity, Shell, usd } from "@/app/_ui";
 import {
-  addCardAction, importDeckListAction, moveCardAction, removeCardAction, setQuantityAction,
-  shareDeckAction, unshareDeckAction,
+  addCardAction, deleteDeckAction, importDeckListAction, moveCardAction, removeCardAction,
+  renameDeckAction, setQuantityAction, shareDeckAction, unshareDeckAction,
 } from "../_actions";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +66,20 @@ export default async function DeckPage({
         </>
       }
     >
+      {/* Step two of the delete. Rendered at the top rather than inside the
+          settings panel it was launched from: a confirmation you have to go
+          hunting for down a scrolled sidebar is one you will confirm blind. */}
+      {one(sp.confirm) === "1" ? (
+        <DeleteConfirm
+          deckId={deckId}
+          deck={deck}
+          cards={cards.reduce((s, c) => s + c.quantity, 0)}
+          unresolved={unresolved}
+          err={one(sp.err)}
+          base={base}
+        />
+      ) : null}
+
       <ImportSummary sp={sp} />
 
       {unresolved > 0 ? (
@@ -103,6 +117,7 @@ export default async function DeckPage({
           <PastePanel deckId={deckId} />
           <LegalityPanel validation={validation} />
           <CurvePanel cards={cards} />
+          <SettingsPanel deck={deck} deckId={deckId} base={base} />
         </aside>
       </div>
     </Shell>
@@ -144,6 +159,156 @@ function ShareControl({ deckId, isPublic, slug }: {
         <button className="mini danger" type="submit" title="make private again">unshare</button>
       </form>
     </span>
+  );
+}
+
+/**
+ * Rename, re-format, and the way in to deleting.
+ *
+ * The delete control is a GET form, not a POST. Clicking it navigates to
+ * `?confirm=1` and re-renders this page with the confirmation at the top; it
+ * cannot itself destroy anything. That is the whole trick: this app ships no
+ * client JavaScript, so there is no `confirm()` to fall back on, and the only
+ * safe first click is one that merely changes the URL.
+ */
+function SettingsPanel({ deck, deckId, base }: {
+  deck: DeckRow; deckId: number; base: string;
+}) {
+  // `decks.format` is free TEXT (0004_decks.sql) and only the create form ever
+  // constrains it, so a deck can hold a format this select does not list — a
+  // row inserted by hand, or a value later dropped from DECK_FORMATS. Carried
+  // as an extra option because otherwise the select renders showing
+  // 'commander', and a rename that never touched the format would look like it
+  // had changed one. (The action would keep the old value regardless:
+  // parseFormat rejects it and renameDeck COALESCEs. This is about not lying.)
+  const formats = (DECK_FORMATS as readonly string[]).includes(deck.format)
+    ? [...DECK_FORMATS]
+    : [deck.format, ...DECK_FORMATS];
+
+  return (
+    <div className="panel">
+      <h2>Deck settings</h2>
+
+      <form action={renameDeckAction} style={{ display: "grid", gap: "0.4rem" }}>
+        <input type="hidden" name="deckId" value={deckId} />
+        <input
+          type="text"
+          name="name"
+          defaultValue={deck.name}
+          required
+          // Matches parseDeckName, which truncates rather than rejects — better
+          // to stop the 121st character here than to silently drop it.
+          maxLength={120}
+          aria-label="Deck name"
+          style={{ width: "100%", fontSize: 12 }}
+        />
+        <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <select
+            className="mini"
+            name="format"
+            defaultValue={deck.format}
+            aria-label="Format"
+            style={{ flex: 1, minWidth: 0 }}
+          >
+            {formats.map((f) => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <button className="mini" type="submit" title="save the name and format">rename</button>
+        </div>
+      </form>
+
+      <div style={{ borderTop: "1px solid var(--bg2)", margin: "0.8rem 0 0.6rem" }} />
+
+      <form method="get" action={base}>
+        <input type="hidden" name="confirm" value="1" />
+        <button
+          className="mini danger"
+          type="submit"
+          style={{ borderColor: "var(--red)", color: "var(--red)" }}
+          title="delete this deck — you get to confirm first"
+        >
+          delete deck…
+        </button>
+      </form>
+      <p style={{ fontSize: 10, color: "var(--dim2)", margin: "0.4rem 0 0" }}>
+        Deleting takes the deck and its cards. Your collection is a separate
+        table and is not touched.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Step two of the delete, gated behind `?confirm=1`.
+ *
+ * The submit is only armed by typing the deck's name, checked server-side in
+ * `deleteDeckAction` — not because a hidden token would be hard to forge, but
+ * because the realistic accident is the right button on the wrong deck: a tab
+ * left open on this URL, or a second window. A name has to match; a token
+ * matches everywhere.
+ */
+function DeleteConfirm({ deckId, deck, cards, unresolved, err, base }: {
+  deckId: number; deck: DeckRow; cards: number; unresolved: number; err: string; base: string;
+}) {
+  return (
+    <div className="panel" style={{ marginBottom: "1rem", borderLeft: "2px solid var(--red)" }}>
+      <h2 style={{ color: "var(--red)" }}>Delete “{deck.name}”?</h2>
+
+      <p style={{ fontSize: 12, margin: "0 0 0.6rem" }}>
+        This removes the deck and the <span className="stat">{cards}</span> card
+        {cards === 1 ? "" : "s"} on its boards
+        {unresolved > 0 ? (
+          <>, plus {unresolved} row{unresolved === 1 ? "" : "s"} not currently in the mirror</>
+        ) : null}
+        . There is no undo.
+      </p>
+
+      {deck.is_public && deck.public_slug ? (
+        <p style={{ fontSize: 12, color: "var(--orange)", margin: "0 0 0.6rem" }}>
+          This deck is shared. <span style={{ color: "var(--fg0)" }}>/d/{deck.public_slug}</span>{" "}
+          stops resolving the moment it goes, for everyone holding the link.
+        </p>
+      ) : null}
+
+      {err === "name" ? (
+        <p style={{ fontSize: 12, color: "var(--orange)", margin: "0 0 0.6rem" }}>
+          That did not match, so nothing was deleted. Type the deck name exactly
+          as it appears above.
+        </p>
+      ) : null}
+
+      <form
+        action={deleteDeckAction}
+        style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}
+      >
+        <input type="hidden" name="deckId" value={deckId} />
+        <input
+          type="text"
+          name="confirmName"
+          required
+          autoComplete="off"
+          spellCheck={false}
+          // Deliberately looser than the 120 parseDeckName enforces: a name that
+          // predates that cap still has to be typeable in full.
+          maxLength={200}
+          placeholder={deck.name}
+          aria-label={`Type the deck name ${deck.name} to confirm deletion`}
+          style={{ fontSize: 12, minWidth: "14rem" }}
+        />
+        <button
+          className="mini danger"
+          type="submit"
+          style={{ borderColor: "var(--red)", color: "var(--red)" }}
+        >
+          delete permanently
+        </button>
+        <Link href={base} style={{ fontSize: 11 }}>cancel</Link>
+      </form>
+
+      <p style={{ fontSize: 10, color: "var(--dim2)", margin: "0.5rem 0 0" }}>
+        Type the deck name to confirm. Case and spacing are forgiven; the wrong
+        deck is not.
+      </p>
+    </div>
   );
 }
 
