@@ -8,10 +8,12 @@ import { pool, query } from "@/lib/db";
 import { disableSharing, enableSharing } from "@/app/d/_share";
 import { applyDeckList, parseDeckList, resolveDeckList } from "@/lib/deck/decklist";
 import {
-  addDeckCard, createDeck, loadOwnedDeck, moveDeckCard, removeDeckCard,
-  setDeckCardQuantity,
+  addDeckCard, createDeck, deleteDeck, loadOwnedDeck, moveDeckCard, removeDeckCard,
+  renameDeck, setDeckCardQuantity,
+  confirmsDeckName,
   parseAddQuantity, parseBoard, parseDeckName, parseFinish, parseFormat,
   parseId, parseQuantity, parseScryfallId,
+  type DeckRow,
 } from "@/lib/deck";
 
 /**
@@ -28,8 +30,15 @@ const exec = (text: string, params: unknown[]) =>
   query<Record<string, unknown>>(text, params);
 
 /** Ownership gate shared by every mutation. Throws rather than returning, so a
- *  caller cannot forget to check. */
-async function ownedDeckOr404(deckId: number | null): Promise<{ userId: number; deckId: number }> {
+ *  caller cannot forget to check.
+ *
+ *  The loaded row comes back with it because the deck-level actions need the
+ *  deck's own state to do their job — the name the delete confirmation must
+ *  match, and the slug whose public path has to be revalidated. Re-reading it
+ *  inside those actions would mean two reads that can disagree. */
+async function ownedDeckOr404(
+  deckId: number | null,
+): Promise<{ userId: number; deckId: number; deck: DeckRow }> {
   const userId = await currentUserId();
   if (!userId) redirect("/signin");
   if (deckId === null) throw new Error("invalid deck id");
@@ -37,7 +46,7 @@ async function ownedDeckOr404(deckId: number | null): Promise<{ userId: number; 
   // Someone else's deck and a nonexistent deck are indistinguishable here on
   // purpose — otherwise this confirms which deck ids exist.
   if (!deck) throw new Error("deck not found");
-  return { userId, deckId };
+  return { userId, deckId, deck };
 }
 
 export async function createDeckAction(formData: FormData) {
@@ -51,6 +60,83 @@ export async function createDeckAction(formData: FormData) {
   const deck = await createDeck(pool, userId, { name, format });
   revalidatePath("/decks");
   redirect(`/decks/${deck.id}`);
+}
+
+/**
+ * Rename a deck, and re-format it in the same submit.
+ *
+ * Format is editable here for the same reason the name is: `decks.format` is
+ * picked once from a select on a page where you have not yet added a card, and
+ * nothing about it is destructive to change. It selects which rules
+ * `lib/commander/` is asked to judge, and that judgement is recomputed on every
+ * render from `deck_cards`, so a format change rewrites no rows and invalidates
+ * no card — the alternative is deleting a 99-card deck to fix a dropdown.
+ *
+ * A rejected format leaves the column untouched rather than falling back to
+ * 'commander': `parseFormat` returns null for a value outside DECK_FORMATS, and
+ * a deck sitting on a format this select cannot represent must not be retyped
+ * by a rename that never mentioned it.
+ */
+export async function renameDeckAction(formData: FormData) {
+  const { userId, deckId, deck } = await ownedDeckOr404(parseId(formData.get("deckId")));
+
+  const name = parseDeckName(formData.get("name"));
+  const format = parseFormat(formData.get("format"));
+  // Empty name: re-render unchanged, exactly as createDeckAction does. Clearing
+  // the box is a slip, not an instruction to store "".
+  if (!name) return;
+
+  await renameDeck(pool, deckId, userId, { name, format });
+
+  revalidatePath(`/decks/${deckId}`);
+  // The list shows the name and the format, and orders by updated_at, which the
+  // rename just moved.
+  revalidatePath("/decks");
+  // The public page renders the name and the format too, so a shared deck that
+  // was renamed must not keep serving the old title to strangers.
+  if (deck.is_public && deck.public_slug) revalidatePath(`/d/${deck.public_slug}`);
+}
+
+/**
+ * Delete a deck, its cards, and its share link.
+ *
+ * Two steps, both of them server-side. The page only shows this form once
+ * `?confirm=1` is in the URL (see app/decks/[id]/page.tsx), and this action
+ * additionally requires the deck's own name to have been typed — no client
+ * JavaScript is loaded anywhere in this app, so `confirm()` does not exist and
+ * a single POST-on-click button would be one stray tap from destroying a
+ * finished deck. The typed name is re-checked here rather than trusted from the
+ * page, because the query-string gate is UI and a hidden field is not a
+ * permission; on a mismatch nothing is deleted and the user lands back on the
+ * confirm state with the reason.
+ *
+ * `deleteDeck` returns the row it removed, so the slug being invalidated below
+ * is the slug that actually existed at the moment of deletion.
+ */
+export async function deleteDeckAction(formData: FormData) {
+  const { userId, deckId, deck } = await ownedDeckOr404(parseId(formData.get("deckId")));
+
+  if (!confirmsDeckName(formData.get("confirmName"), deck.name)) {
+    redirect(`/decks/${deckId}?confirm=1&err=name`);
+  }
+
+  const deleted = await deleteDeck(pool, deckId, userId);
+  if (!deleted) redirect("/decks"); // Already gone — a double submit, not an error.
+
+  // /decks loses a row; the deck's own path now 404s and must not be served
+  // from a router cache entry that still remembers the deck.
+  revalidatePath("/decks");
+  revalidatePath(`/decks/${deckId}`);
+  // The share link is dead the moment the row goes (the public query needs a
+  // row with is_public = TRUE), but the rendered page can still be sitting in a
+  // cache, so drop it explicitly — this is the difference between "the link
+  // stops working" and "the link stops working eventually".
+  if (deleted.public_slug) revalidatePath(`/d/${deleted.public_slug}`);
+
+  // Back to the list: the page you were on no longer exists. The name rides on
+  // the query string so the redirect can say what went, the same way the import
+  // summary reports what landed.
+  redirect(`/decks?${new URLSearchParams({ deleted: deleted.name })}`);
 }
 
 export async function addCardAction(formData: FormData) {

@@ -19,9 +19,22 @@ interface Row extends Record<string, unknown> {
   commanders: string | null;
 }
 
-export default async function DecksPage() {
+type SearchParams = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
+
+export default async function DecksPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const userId = await currentUserId();
   if (!userId) redirect("/signin");
+
+  // `?deleted=<name>` is set by deleteDeckAction's redirect. Same reasoning as
+  // the import summary on the deck page: the deck you were looking at is gone
+  // and its page cannot report its own deletion, so the outcome rides on the
+  // query string, survives a refresh, and leaves no state to clean up.
+  const deleted = one((await searchParams).deleted).slice(0, 120);
 
   const rows = await query<Row>(
     `SELECT d.id, d.name, d.format, d.is_public, d.public_slug,
@@ -43,6 +56,12 @@ export default async function DecksPage() {
       title="decks"
       subtitle={rows.length ? `${rows.length} deck${rows.length === 1 ? "" : "s"}` : "no decks yet"}
     >
+      {deleted ? (
+        <p style={{ color: "var(--red)", fontSize: 12, margin: "0 0 1rem" }}>
+          Deleted “{deleted}” and everything in it.
+        </p>
+      ) : null}
+
       <form action={createDeckAction} className="filters" style={{ marginBottom: "1.5rem" }}>
         <fieldset style={{ marginBottom: 0 }}>
           <legend>New deck</legend>

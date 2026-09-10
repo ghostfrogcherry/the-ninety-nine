@@ -51,7 +51,9 @@ const {
   MAX_QUANTITY,
   SEARCH_SCOPES,
   addDeckCard,
+  confirmsDeckName,
   createDeck,
+  deleteDeck,
   loadDeckContents,
   loadOwnedDeck,
   moveDeckCard,
@@ -65,6 +67,7 @@ const {
   parseScope,
   parseScryfallId,
   removeDeckCard,
+  renameDeck,
   searchMirror,
   setDeckCardQuantity,
   toDeckEntries,
@@ -248,6 +251,86 @@ describe("parseDeckName", () => {
     assert.equal(parseDeckName("x".repeat(120))?.length, 120);
     assert.equal(parseDeckName("x".repeat(121))?.length, 120);
     assert.equal(parseDeckName("x".repeat(10_000))?.length, 120);
+  });
+});
+
+/**
+ * The pre-condition on the only irreversible action in the app.
+ *
+ * `deleteDeckAction` will not delete unless this returns true, so every false
+ * below is a deck that survives a mis-click and every true is one a user can
+ * actually get rid of without a lesson in exact typing.
+ */
+describe("confirmsDeckName", () => {
+  it("accepts the name as displayed", () => {
+    assert.equal(confirmsDeckName("Arahbo Cats", "Arahbo Cats"), true);
+  });
+
+  it("forgives case, surrounding whitespace and collapsed runs of spaces", () => {
+    for (const typed of [
+      "arahbo cats",
+      "ARAHBO CATS",
+      "  Arahbo Cats  ",
+      "Arahbo   Cats",
+      "Arahbo\tCats",
+      "arahbo \n cats",
+    ]) {
+      assert.equal(confirmsDeckName(typed, "Arahbo  Cats"), true, `rejected ${JSON.stringify(typed)}`);
+    }
+  });
+
+  it("rejects a different deck's name, and near-misses of the right one", () => {
+    for (const typed of [
+      "Arahbo Cat", // singular
+      "Arahbo Cats deck", // suffixed
+      "Cats", // the memorable half
+      "ArahboCats", // whitespace is collapsed, never removed
+      "Arahbo Bats",
+      "*",
+      "%",
+    ]) {
+      assert.equal(confirmsDeckName(typed, "Arahbo Cats"), false, `accepted ${JSON.stringify(typed)}`);
+    }
+  });
+
+  it("rejects garbage on either side", () => {
+    for (const g of GARBAGE) {
+      assert.equal(confirmsDeckName(g, "Arahbo Cats"), false, `accepted typed ${String(g)}`);
+      assert.equal(confirmsDeckName("Arahbo Cats", g), false, `accepted name ${String(g)}`);
+    }
+  });
+
+  /**
+   * The vacuous match. `parseDeckName` cannot store a blank name, but a direct
+   * INSERT can, and an empty confirmation box folds to "" as well — so without
+   * the explicit guard that one deck would delete on a form nobody filled in.
+   */
+  it("never matches a blank stored name, however the box is filled", () => {
+    for (const stored of ["", "   ", "\t\n"]) {
+      for (const typed of ["", "   ", "anything"]) {
+        assert.equal(confirmsDeckName(typed, stored), false, `${JSON.stringify(typed)} vs ${JSON.stringify(stored)}`);
+      }
+    }
+  });
+
+  it("handles the punctuation and emoji real deck names carry", () => {
+    for (const name of [
+      "Ur-Dragon // Tribal",
+      "K'rrik, Son of Yawgmoth",
+      "Slivers 🪱",
+      "99 problems (but a land ain't one)",
+    ]) {
+      assert.equal(confirmsDeckName(name, name), true, `rejected ${name}`);
+      assert.equal(confirmsDeckName(`${name}x`, name), false, `accepted ${name}x`);
+    }
+  });
+
+  it("is not fooled by a name that only matches after truncation", () => {
+    // parseDeckName caps at 120; the confirm box deliberately does not run
+    // through it, so a 120-char prefix of a longer stored name must not pass.
+    const stored = `${"x".repeat(120)}tail`;
+    assert.equal(confirmsDeckName("x".repeat(120), stored), false);
+    assert.equal(confirmsDeckName(stored, stored), true);
   });
 });
 
@@ -440,6 +523,75 @@ describe("searchMirror before it reaches SQL", () => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * Pure — the shape of the two deck-level statements
+ *
+ * These write the `decks` row itself rather than `deck_cards`, so the
+ * ownership scope is in the statement instead of being inherited from a
+ * gate the caller already passed. A stub proves it without a database.
+ * ------------------------------------------------------------------ */
+
+describe("deleteDeck's statement", () => {
+  it("is scoped by user_id — an unscoped DELETE FROM decks is unrecoverable", async () => {
+    const db = stubDb();
+    await deleteDeck(db, 7, 3);
+    assert.equal(db.calls.length, 1);
+    const { text, values } = db.calls[0];
+    assert.match(text, /DELETE FROM decks/);
+    assert.match(text, /WHERE id = \$1 AND user_id = \$2/);
+    assert.deepEqual(values, [7, 3]);
+  });
+
+  it("does not touch deck_cards itself — that is the FK cascade's job", async () => {
+    const db = stubDb();
+    await deleteDeck(db, 7, 3);
+    assert.doesNotMatch(db.calls[0].text, /deck_cards/);
+  });
+
+  it("returns null when nothing was deleted, rather than pretending", async () => {
+    assert.equal(await deleteDeck(stubDb(), 7, 3), null);
+  });
+});
+
+describe("renameDeck's statement", () => {
+  it("is scoped by user_id and binds the name, never inlines it", async () => {
+    const db = stubDb();
+    await renameDeck(db, 7, 3, { name: "Bob'); DROP TABLE decks; --" });
+    assert.equal(db.calls.length, 1);
+    const { text, values } = db.calls[0];
+    assert.match(text, /UPDATE decks/);
+    assert.match(text, /WHERE id = \$1 AND user_id = \$2/);
+    assert.equal(values[2], "Bob'); DROP TABLE decks; --");
+    assert.ok(!text.includes("DROP TABLE"), "the new name must not reach SQL text");
+  });
+
+  it("bumps updated_at in the same statement, so /decks re-sorts on a rename", async () => {
+    const db = stubDb();
+    await renameDeck(db, 7, 3, { name: "Cats" });
+    assert.match(db.calls[0].text, /updated_at = now\(\)/);
+    assert.equal(db.calls.length, 1, "no second round trip to touchDeck");
+  });
+
+  it("binds null for an absent or rejected format, and COALESCEs it away", async () => {
+    const omitted = stubDb();
+    await renameDeck(omitted, 7, 3, { name: "Cats" });
+    assert.equal(omitted.calls[0].values[3], null);
+    assert.match(omitted.calls[0].text, /format\s*=\s*COALESCE\(\$4, format\)/);
+
+    // parseFormat returns null for a format outside DECK_FORMATS; that must
+    // leave the stored value alone, not overwrite it with a default.
+    const rejected = stubDb();
+    await renameDeck(rejected, 7, 3, { name: "Cats", format: null });
+    assert.equal(rejected.calls[0].values[3], null);
+  });
+
+  it("binds a supplied format", async () => {
+    const db = stubDb();
+    await renameDeck(db, 7, 3, { name: "Cats", format: "modern" });
+    assert.equal(db.calls[0].values[3], "modern");
+  });
+});
+
 describe("toDeckEntries", () => {
   it("carries board and quantity through to the validator's shape", () => {
     const rows = [
@@ -520,6 +672,23 @@ const TWO_FACED = EXTRA_MIRROR[2];
 
 /** A UUID that is deliberately NOT in the mirror. There is no FK (0004). */
 const ABSENT_ID = "deadbeef-0000-4000-8000-000000000099";
+
+/**
+ * A slug of the shape app/d/_share.ts mints, generated rather than hardcoded so
+ * two runs against the same database cannot collide on decks_public_slug_key.
+ *
+ * The alphabet and length are copied, not imported: these tests cover
+ * `lib/deck`, and reaching into `app/` for a constant would tie them to a file
+ * that a share-link change owns. Nothing here depends on the entropy — only on
+ * the value being unique and index-legal — so Math.random is fine where
+ * _share.ts rightly insists on randomBytes.
+ */
+function fakeSlug(): string {
+  const alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
+  let out = "";
+  for (let i = 0; i < 20; i += 1) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return out;
+}
 
 describe("deck domain against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
   let pool: pg.Pool;
@@ -1240,6 +1409,184 @@ describe("deck domain against postgres", { skip: !DB_URL && "TEST_DATABASE_URL n
 
     it("is harmless for a deck id that does not exist", async () => {
       await touchDeck(pool, 2_147_483_646);
+    });
+  });
+
+  /* ---------------------------------------------------------------- *
+   * renameDeck
+   * ---------------------------------------------------------------- */
+
+  describe("renameDeck", () => {
+    it("renames, returns the new row, and floats the deck up /decks", async () => {
+      const deckId = await newDeck("Typo Cats");
+      await pinUpdatedAt(deckId);
+
+      const renamed = await renameDeck(pool, deckId, userId, { name: "Arahbo Cats" });
+      assert.equal(renamed?.name, "Arahbo Cats");
+      assert.equal((await loadOwnedDeck(pool, deckId, userId))?.name, "Arahbo Cats");
+      // /decks orders by updated_at, so a rename that did not bump it would
+      // leave the deck sitting under decks you touched longer ago.
+      assert.notEqual(await updatedAt(deckId), "2000-01-01 00:00:00+00");
+    });
+
+    it("leaves an unmentioned format alone, including one the select cannot show", async () => {
+      const deckId = await newDeck("format keeper");
+      // Only a direct write can produce this; decks.format is free TEXT and the
+      // rename form must not be able to retype it by omission.
+      await pool.query("UPDATE decks SET format = 'canadian highlander' WHERE id = $1", [deckId]);
+
+      const renamed = await renameDeck(pool, deckId, userId, { name: "still highlander" });
+      assert.equal(renamed?.format, "canadian highlander");
+
+      // null is what parseFormat returns for a rejected value — same outcome.
+      const again = await renameDeck(pool, deckId, userId, { name: "still highlander", format: null });
+      assert.equal(again?.format, "canadian highlander");
+    });
+
+    it("changes the format when one is supplied, without touching the cards", async () => {
+      const deckId = await newDeck("was commander");
+      await addDeckCard(pool, deckId, {
+        scryfallId: FOREST.id, quantity: 1, board: "main", finish: "nonfoil",
+      });
+
+      const renamed = await renameDeck(pool, deckId, userId, { name: "now modern", format: "modern" });
+      assert.equal(renamed?.format, "modern");
+      // Format selects which rules judge the deck; it must not rewrite rows.
+      assert.equal((await rawRows(deckId)).length, 1);
+    });
+
+    it("returns null for another user's deck and changes nothing", async () => {
+      const theirs = await newDeck("theirs to name", otherUserId);
+      assert.equal(await renameDeck(pool, theirs, userId, { name: "mine now" }), null);
+      assert.equal((await loadOwnedDeck(pool, theirs, otherUserId))?.name, "theirs to name");
+    });
+
+    it("returns null for a deck id that does not exist", async () => {
+      assert.equal(await renameDeck(pool, 2_147_483_646, userId, { name: "nobody" }), null);
+    });
+  });
+
+  /* ---------------------------------------------------------------- *
+   * deleteDeck — the cascade, and the share link that dies with it
+   * ---------------------------------------------------------------- */
+
+  describe("deleteDeck", () => {
+    it("takes every deck_cards row with it, on every board, via the FK cascade", async () => {
+      const deckId = await newDeck("cascade");
+      for (const board of DECK_BOARDS) {
+        await addDeckCard(pool, deckId, {
+          scryfallId: FOREST.id, quantity: 2, board, finish: "nonfoil",
+        });
+      }
+      // A row with no mirror entry: there is no FK to scryfall_cards (0004), so
+      // the unresolved rows have to go with the deck as well.
+      await addDeckCard(pool, deckId, {
+        scryfallId: ABSENT_ID, quantity: 1, board: "main", finish: "foil",
+      });
+      assert.equal((await rawRows(deckId)).length, DECK_BOARDS.length + 1);
+
+      const deleted = await deleteDeck(pool, deckId, userId);
+      assert.equal(deleted?.id, deckId);
+      assert.equal(await loadOwnedDeck(pool, deckId, userId), null);
+      // THE assertion this whole function rests on: deleteDeck issues one
+      // statement and never mentions deck_cards, so if the ON DELETE CASCADE in
+      // 0004_decks.sql ever goes away, this is what says so instead of the rows
+      // quietly becoming orphans.
+      assert.deepEqual(await rawRows(deckId), [], "deck_cards must cascade");
+    });
+
+    it("leaves the collection alone — deck rows and collection rows are separate", async () => {
+      const deckId = await newDeck("collection safety");
+      await addDeckCard(pool, deckId, {
+        scryfallId: SOL_C19.id, quantity: 1, board: "main", finish: "nonfoil",
+      });
+      await deleteDeck(pool, deckId, userId);
+
+      const { rows } = await pool.query(
+        "SELECT quantity FROM collection_cards WHERE collection_id = $1 AND scryfall_id = $2 AND finish = 'nonfoil'",
+        [colA, SOL_C19.id],
+      );
+      assert.equal(rows[0]?.quantity, 2, "deleting a deck must not touch what you own");
+    });
+
+    it("reports null the second time — a double submit is not an error", async () => {
+      const deckId = await newDeck("twice");
+      assert.equal((await deleteDeck(pool, deckId, userId))?.id, deckId);
+      assert.equal(await deleteDeck(pool, deckId, userId), null);
+    });
+
+    it("refuses another user's deck; deck and cards both survive", async () => {
+      const theirs = await newDeck("not yours to delete", otherUserId);
+      await addDeckCard(pool, theirs, {
+        scryfallId: FOREST.id, quantity: 1, board: "main", finish: "nonfoil",
+      });
+
+      assert.equal(await deleteDeck(pool, theirs, userId), null);
+      assert.equal((await loadOwnedDeck(pool, theirs, otherUserId))?.id, theirs);
+      assert.equal((await rawRows(theirs)).length, 1);
+    });
+
+    /**
+     * The share-link teardown.
+     *
+     * `/d/[slug]` is served by the two queries below — copied verbatim from
+     * app/d/[slug]/page.tsx rather than imported, because that file is a route
+     * component and pulls in `next/navigation`. If the page's WHERE clause ever
+     * changes, these copies drifting is a smaller problem than a deleted deck
+     * still answering on a public URL.
+     */
+    it("kills the public link: /d/<slug> stops resolving the moment the row goes", async () => {
+      const deckId = await newDeck("shared then binned");
+      const slug = fakeSlug();
+      await pool.query(
+        "UPDATE decks SET public_slug = $2, is_public = TRUE WHERE id = $1",
+        [deckId, slug],
+      );
+      await addDeckCard(pool, deckId, {
+        scryfallId: FOREST.id, quantity: 1, board: "main", finish: "nonfoil",
+      });
+
+      const publicDeck = async () =>
+        (await pool.query(
+          `SELECT name, format, description
+             FROM decks
+            WHERE public_slug = $1 AND is_public = TRUE`,
+          [slug],
+        )).rows;
+      const publicCards = async () =>
+        (await pool.query(
+          `SELECT dc.quantity
+             FROM decks d
+             JOIN deck_cards dc ON dc.deck_id = d.id
+             JOIN scryfall_cards s ON s.id = dc.scryfall_id
+            WHERE d.public_slug = $1 AND d.is_public = TRUE`,
+          [slug],
+        )).rows;
+
+      assert.equal((await publicDeck()).length, 1, "precondition: the link resolves first");
+      assert.equal((await publicCards()).length, 1);
+
+      const deleted = await deleteDeck(pool, deckId, userId);
+      // The action revalidates /d/<slug> with exactly this value; reading the
+      // slug before the delete instead would miss a concurrent rotate.
+      assert.equal(deleted?.public_slug, slug);
+      assert.equal(deleted?.is_public, true);
+
+      assert.deepEqual(await publicDeck(), [], "the page must find no deck to render");
+      assert.deepEqual(await publicCards(), []);
+    });
+
+    it("frees the slug: the unique index holds nothing for a deleted deck", async () => {
+      const slug = fakeSlug();
+      const first = await newDeck("first holder");
+      await pool.query("UPDATE decks SET public_slug = $2, is_public = TRUE WHERE id = $1", [first, slug]);
+      await deleteDeck(pool, first, userId);
+
+      const second = await newDeck("second holder");
+      // decks_public_slug_key is a partial unique index; a deleted row must not
+      // keep reserving its slug, or a rotate could eventually fail to claim one.
+      await pool.query("UPDATE decks SET public_slug = $2, is_public = TRUE WHERE id = $1", [second, slug]);
+      assert.equal((await loadOwnedDeck(pool, second, userId))?.public_slug, slug);
     });
   });
 });
