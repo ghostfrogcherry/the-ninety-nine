@@ -1,16 +1,22 @@
 import type { NextAuthConfig } from "next-auth";
 
 /**
- * Edge-safe base config.
+ * Proxy-safe base config.
  *
- * `middleware.ts` runs in the Edge runtime, where `pg` and `bcryptjs` cannot
- * load. So the config is split: THIS file holds everything the middleware needs
- * (session strategy, cookie/JWT settings, pages, callbacks) and NOTHING that
- * touches Node APIs. `auth.ts` imports it and adds the adapter and the
- * providers, and is only ever imported from Node-runtime code.
+ * The config is split so `proxy.ts` can import THIS half — session strategy,
+ * cookie/JWT settings, pages, callbacks — and nothing that reaches a database
+ * or a password hash. `auth.ts` imports it and adds the adapter and the
+ * providers, and belongs to route handlers and server actions only.
  *
- * Both halves are initialised with the same AUTH_SECRET, so the JWT the
- * middleware reads is the one the route handlers wrote.
+ * That split used to enforce itself. As `middleware.ts` this ran on the Edge
+ * runtime, which cannot load `pg` or `bcryptjs`, so importing `auth.ts` here
+ * failed the build outright. A proxy file always runs on Node, so the same
+ * mistake now compiles quietly and opens a Postgres pool in front of every
+ * guarded request instead. The rule is unchanged; the thing that used to
+ * catch you breaking it is gone, which is why it is written down here.
+ *
+ * Both halves are initialised with the same AUTH_SECRET, so the JWT the proxy
+ * reads is the one the route handlers wrote.
  */
 
 export const PROTECTED_PREFIXES = ["/collections", "/decks"] as const;
@@ -22,10 +28,10 @@ export const authConfig = {
   /**
    * Empty on purpose, and required by the type.
    *
-   * The middleware only ever VERIFIES an existing JWT — it never runs a
-   * provider — so it needs none. `auth.ts` overrides this with the real list.
-   * Listing the Credentials provider here would drag `bcryptjs` into the Edge
-   * bundle for no benefit.
+   * The proxy only ever VERIFIES an existing JWT — it never runs a provider —
+   * so it needs none. `auth.ts` overrides this with the real list. Listing the
+   * Credentials provider here would drag `bcryptjs` into the bundle that fronts
+   * every guarded request, for no benefit.
    */
   providers: [],
 
@@ -73,8 +79,8 @@ export const authConfig = {
     },
 
     /**
-     * Consulted by `middleware.ts`. Kept here so the rule lives next to the
-     * prefix lists rather than being duplicated.
+     * Consulted by `proxy.ts`. Kept here so the rule lives next to the prefix
+     * lists rather than being duplicated.
      */
     authorized({ request, auth }) {
       const { pathname } = request.nextUrl;

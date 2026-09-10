@@ -11,9 +11,10 @@ import { credentialsSchema } from "@/lib/auth/schemas";
 import { findUserByEmail } from "@/lib/auth/users";
 
 /**
- * Auth.js v5 entry point. NODE RUNTIME ONLY — it pulls in `pg` and `bcryptjs`.
- * Anything running on the Edge (i.e. `middleware.ts`) must import
- * `lib/auth/config` instead.
+ * Auth.js v5 entry point. It pulls in `pg` and `bcryptjs`, so it belongs to
+ * route handlers and server actions only. `proxy.ts` must import
+ * `lib/auth/config` instead — nothing but that rule stops it now, since a
+ * proxy file runs on Node and would import this one without complaint.
  *
  * v5 shape: `NextAuth(config)` returns `{ handlers, auth, signIn, signOut }`.
  * There is no `getServerSession`, no `NextAuthOptions`, and no default export

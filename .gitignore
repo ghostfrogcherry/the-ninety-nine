@@ -19,3 +19,9 @@ next-env.d.ts
 npm-debug.log*
 yarn-error.log*
 .DS_Store
+
+# Agent worktrees the Claude Code harness creates for parallel work. Each is a
+# full checkout of this repo; committing them would nest the repo inside itself.
+# Only worktrees/ is ignored, so a real .claude/settings.json can still be
+# committed if the project ever wants one.
+.claude/worktrees/

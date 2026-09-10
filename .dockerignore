@@ -21,3 +21,8 @@ db/seed/*-card-index.html
 
 README.md
 *.md
+
+# Claude Code's working directory. .claude/worktrees/ in particular holds a
+# full checkout of this repo per parallel agent, which would otherwise be
+# copied into the build context by the Dockerfile's `COPY . .`.
+.claude/

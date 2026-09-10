@@ -147,6 +147,41 @@ export function parseDeckName(value: unknown): string | null {
 }
 
 /**
+ * Fold a deck name to the form the delete confirmation compares on. Not
+ * exported: the folded form is never stored and never displayed, it exists only
+ * for the equality test below.
+ */
+function foldDeckName(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Does the text typed into the delete box name the deck that is about to be
+ * deleted?
+ *
+ * Deleting a deck is unrecoverable — no soft delete, no undo, and the FK
+ * cascade takes all ninety-nine cards with it — so the confirmation is tied to
+ * the deck's identity rather than to a generic "yes" token. The failure a token
+ * does not catch: a tab left open on /decks/7?confirm=1 yesterday, clicked
+ * today when you meant deck 9. A name has to match, so the stale tab deletes
+ * nothing.
+ *
+ * Case and runs of whitespace are folded, because rejecting someone who typed
+ * "arahbo cats" for "Arahbo  Cats" protects nobody and only trains them to
+ * paste without reading. An empty box never matches, not even a deck whose
+ * stored name is blank — `parseDeckName` cannot create one, but a direct INSERT
+ * can, and that must not be the one deck that deletes itself on an empty form.
+ */
+export function confirmsDeckName(typed: unknown, deckName: unknown): boolean {
+  const t = str(typed);
+  const n = str(deckName);
+  if (t === null || n === null) return false;
+  const folded = foldDeckName(n);
+  if (folded === "") return false;
+  return foldDeckName(t) === folded;
+}
+
+/**
  * Quantity for an *edit*. 0 is deliberately legal here and means "delete the
  * row" — `quantity` is CHECK (> 0), so the alternative is a constraint error on
  * a perfectly reasonable user action.
@@ -427,6 +462,77 @@ export async function createDeck(
     [userId, input.name, input.format, input.description ?? null],
   );
   return rows[0] as DeckRow;
+}
+
+/**
+ * Rename a deck, and optionally re-format it.
+ *
+ * `updated_at = now()` rides inside this UPDATE rather than going through
+ * `touchDeck`. `touchDeck` is a separate statement because a card mutation
+ * writes `deck_cards` and touching the deck is a second table; a rename is
+ * already writing the deck row, so folding it in is free — and it means /decks
+ * cannot re-sort for a rename that did not actually land.
+ *
+ * `format` is optional, and `COALESCE($4, format)` leaves the column alone when
+ * it is null. That is load-bearing rather than tidy: `parseFormat` returns null
+ * for anything outside DECK_FORMATS and `decks.format` is free TEXT, so a deck
+ * inserted directly as 'canadian highlander' has to survive a rename instead of
+ * being silently retyped as whatever the select fell back to.
+ *
+ * Scoped by `user_id` as well as `id` — like enableSharing/disableSharing, and
+ * unlike the card mutations, which are already behind a deck the caller was
+ * shown to own. This writes the deck row itself, so it re-states the check.
+ * Null means "not yours" or "not there", indistinguishable on purpose.
+ */
+export async function renameDeck(
+  db: Queryable,
+  deckId: number,
+  userId: number,
+  input: { name: string; format?: string | null },
+): Promise<DeckRow | null> {
+  const { rows } = await db.query(
+    `UPDATE decks
+        SET name       = $3,
+            format     = COALESCE($4, format),
+            updated_at = now()
+      WHERE id = $1 AND user_id = $2
+      RETURNING id, user_id, name, format, is_public, public_slug`,
+    [deckId, userId, input.name, input.format ?? null],
+  );
+  return (rows[0] as DeckRow) ?? null;
+}
+
+/**
+ * Delete a deck and everything in it.
+ *
+ * ONE statement, no transaction: `deck_cards.deck_id` is
+ * `REFERENCES decks (id) ON DELETE CASCADE` in 0004_decks.sql, so the card rows
+ * go with the deck inside this DELETE. Deleting `deck_cards` by hand first is
+ * the version that would need a transaction, and all it would add is a window
+ * in which a deck exists with its cards already gone. The cascade is asserted
+ * against a real Postgres in test/deck.test.ts rather than trusted, so dropping
+ * that FK fails a test instead of quietly orphaning rows.
+ *
+ * Returns the row it deleted, so the caller can revalidate `/d/<slug>` with the
+ * slug this DELETE actually removed. Reading the slug beforehand leaves a window
+ * in which a concurrent rotate publishes the deck at a slug nobody invalidates.
+ *
+ * The public link dies with the row and needs no separate un-share step:
+ * `/d/[slug]` resolves through `WHERE public_slug = $1 AND is_public = TRUE`,
+ * and there is no longer a row to match.
+ */
+export async function deleteDeck(
+  db: Queryable,
+  deckId: number,
+  userId: number,
+): Promise<DeckRow | null> {
+  const { rows } = await db.query(
+    `DELETE FROM decks
+      WHERE id = $1 AND user_id = $2
+      RETURNING id, user_id, name, format, is_public, public_slug`,
+    [deckId, userId],
+  );
+  return (rows[0] as DeckRow) ?? null;
 }
 
 export interface AddCardInput {
