@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { currentUserId } from "@/app/api/collections/access";
 import { query } from "@/lib/db";
 import { Badge, Empty, Shell, usd } from "@/app/_ui";
+import { createCollectionAction } from "./_actions";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +45,34 @@ export default async function CollectionsPage() {
           : undefined
       }
     >
+      {/* Creating a collection used to require scripts/import-collection.mjs
+          --create, which made the browser import unreachable to anyone who had
+          not already been to a terminal. */}
+      <form action={createCollectionAction} className="filters" style={{ marginBottom: "1.5rem" }}>
+        <fieldset style={{ marginBottom: 0 }}>
+          <legend>New</legend>
+          <input
+            type="text"
+            name="name"
+            placeholder="collection name…"
+            required
+            maxLength={120}
+            style={{ minWidth: "18rem" }}
+            aria-label="Collection name"
+          />
+          {/* defaultChecked, not checked: uncontrolled server-rendered form. */}
+          <label className="chip">
+            <input type="checkbox" name="isPublic" defaultChecked={false} />
+            <span>public</span>
+          </label>
+          <button type="submit">create</button>
+        </fieldset>
+      </form>
+
       {rows.length === 0 ? (
         <Empty>
-          No collections yet. Import one with{" "}
-          <code>node scripts/import-collection.mjs &lt;file&gt; --create</code>.
+          No collections yet — name one above, then upload or paste a Moxfield
+          export into it.
         </Empty>
       ) : (
         <table>
