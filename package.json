@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "refresh-scryfall": "node scripts/refresh-scryfall.mjs",
     "import-collection": "node scripts/import-collection.mjs",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
     "next": "16.3.4",

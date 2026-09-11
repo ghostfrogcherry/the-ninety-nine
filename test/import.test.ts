@@ -6,6 +6,13 @@
  * The pure tests always run. The database tests run only when
  * TEST_DATABASE_URL is set, e.g.
  *
+ * The `test` script passes --test-concurrency=1 and that is load-bearing here,
+ * not a preference. Node runs test FILES in parallel processes by default, and
+ * every DB-backed file in this directory seeds the same shared fixture into the
+ * same tables; run them at once against one database and they delete each
+ * other's rows mid-assertion. Serialized the suite is 435/435 green; parallel
+ * it fails about fifteen, in whichever files lose the race that run.
+ *
  *   docker run -d --name nn-import-test -p 55432:5432 \
  *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
  *     postgres:17-alpine
@@ -268,6 +275,18 @@ describe("resolve + import against postgres", { skip: !DB_URL && "TEST_DATABASE_
     if (!pool) return;
     // Cascades to collections -> collection_cards / imports / issues.
     await pool.query("DELETE FROM users WHERE id = $1", [userId]);
+
+    // `scryfall_cards` and `card_price_history` are NOT owned by that user, so
+    // nothing cascades them away. They have to go explicitly, or this file
+    // hands the next one a mirror it never asked for: the seed ids are the
+    // shared fixture's, so a later file that seeds the same printings inherits
+    // prices it did not write and a "collection with no price history" quietly
+    // acquires one. Scoped to the ids this file inserted rather than a
+    // TRUNCATE, because a real database may be pointed at by mistake.
+    const ids = seedCards.map((c) => c.id);
+    await pool.query("DELETE FROM card_price_history WHERE scryfall_id = ANY($1::uuid[])", [ids]);
+    await pool.query("DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])", [ids]);
+
     await pool.end();
   });
 
