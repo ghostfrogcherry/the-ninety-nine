@@ -7,9 +7,11 @@ import {
   buildWhere, isFiltered, parseFilters, withParam,
   type View,
 } from "@/lib/collection/filters";
+import { IMPORT_URL_KEYS } from "@/lib/import/form";
 import { Shell, usd } from "@/app/_ui";
 import { FilterBar, ViewToggle } from "./_filters";
 import { CardFeed, type FeedCard } from "./_feed";
+import { ImportSection } from "./_import";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +75,14 @@ export default async function CollectionPage({
   const hasMore = fetched.length > perPage;
   const rows = hasMore ? fetched.slice(0, perPage) : fetched;
 
+  // Whether the collection holds anything at all, which is NOT the same as the
+  // filtered count above: a filter that matches nothing must not make the
+  // import form spring open over a collection that is perfectly well stocked.
+  const [{ any_cards: hasCards }] = await query<{ any_cards: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM collection_cards WHERE collection_id = $1) AS any_cards",
+    [id],
+  );
+
   // Sets actually present in this collection, for the dropdown.
   const setRows = await query<{ set_code: string }>(
     `SELECT DISTINCT s.set_code
@@ -83,9 +93,12 @@ export default async function CollectionPage({
   );
 
   // Replayed verbatim by the feed so scrolled pages match the first render.
+  // The import report's own params are dropped: they say nothing about which
+  // cards to fetch, and a dry run's dozen unresolved lines would otherwise be
+  // appended to every scroll request for as long as the banner is on screen.
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
-    if (v === undefined || k === "page") continue;
+    if (v === undefined || k === "page" || IMPORT_URL_KEYS.includes(k)) continue;
     for (const item of Array.isArray(v) ? v : [v]) if (item) qs.append(k, item);
   }
 
@@ -105,11 +118,15 @@ export default async function CollectionPage({
         </>
       }
     >
+      <ImportSection collectionId={id} searchParams={sp} empty={!hasCards} />
+
       <FilterBar filters={filters} sets={setRows.map((r) => r.set_code)} action={base} />
 
       {rows.length === 0 ? (
         <p className="empty">
-          {isFiltered(filters) ? "Nothing matches those filters." : "This collection is empty."}
+          {isFiltered(filters)
+            ? "Nothing matches those filters."
+            : "This collection is empty — import an export above."}
         </p>
       ) : (
         <CardFeed
