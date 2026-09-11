@@ -17,11 +17,12 @@
  * ------------------------------------------------------------------ */
 
 /**
- * The ceiling the HTTP route enforces, as its own `MAX_BYTES`.
+ * The ceiling on an import, whichever transport carries it. Roughly 40x the
+ * first real batch (45 KB / 1457 lines).
  *
- * Duplicated rather than imported because route.ts does not export it and this
- * module must not import a route file. If one moves, move both — they describe
- * the same policy for two transports.
+ * Defined here rather than in the route so the two front doors cannot drift:
+ * `app/api/collections/[id]/import/route.ts` imports this, and a lib module is
+ * the only place both a route and a server action can read from.
  */
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 
