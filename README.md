@@ -7,23 +7,34 @@ Named for the ninety-nine cards that sit behind a commander.
 
 ## Status
 
-Backend is built and tested, with read-only views on top. Deck building in the
-browser is the main thing still missing.
+Feature-complete for one household's use. Collections and decks can both be
+built, edited and shared from a browser; nothing routine needs a terminal any
+more.
 
 | Piece | State |
 |---|---|
 | Postgres schema (`db/migrations/`) | Done — applies clean, constraints verified |
 | Docker Compose + Dockerfile | Done — image builds, stack runs, migrations auto-apply |
 | Collection import (`lib/import/`, `scripts/import-collection.mjs`) | Done — 18 tests |
+| Collection import in the browser (`app/collections/`) | Done — upload or paste, dry-run preview |
 | Scryfall bulk mirror (`lib/scryfall/`, `scripts/refresh-scryfall.mjs`) | Done — 26 tests |
 | Commander validation (`lib/commander/`) | Done — 32 tests, mutation-checked |
 | Auth.js v5 (`auth.ts`, `lib/auth/`) | Done — sign-in verified end-to-end over HTTP |
 | API routes (`app/api/collections/`) | Done |
-| Collection + deck UI | Done — read-only views, verified against a running stack |
-| **Deck editing** | **Not built** — decks can be read and validated, not built in the UI |
-| **Public deck share links** (`/d/[slug]`) | **Not built** — schema supports it (`decks.public_slug`) |
+| Collection browser | Done — filters, infinite scroll, foil and non-foil priced apart |
+| Deck editing | Done — create, rename, delete, add/remove/move, paste-import |
+| Public deck share links (`/d/[slug]`) | Done — rotatable slug that survives un-sharing |
+| Price history (`lib/prices/`, `/collections/[id]/prices`) | Done — value chart and movers |
 
-92 tests pass; `tsc --noEmit` is clean.
+300 tests pass without a database and 435 with one; `tsc --noEmit` is clean and
+`next build --webpack` is warning-free.
+
+The suite runs its files **serially** (`--test-concurrency=1` in the `test`
+script) and that flag is load-bearing, not taste. Node runs test files in
+parallel processes by default, and every database-backed file seeds the same
+shared fixture into the same tables, so in parallel they delete each other's
+rows mid-assertion — about fifteen failures, in whichever files lose that run's
+race.
 
 ## Stack
 
@@ -37,6 +48,21 @@ Three version facts that will bite if you change them casually:
   `build` script already passes the flag. Turbopack standalone also drops
   `serverExternalPackages` (our `pg`); see
   [vercel/next.js#88844](https://github.com/vercel/next.js/issues/88844).
+- **Route protection lives in `proxy.ts`, not `middleware.ts`.** Next 16
+  deprecated the `middleware` filename and warns on every build; with both files
+  present the build fails outright (E900). The rename is nearly all of it — the
+  matcher is parsed by the same code either way, and ours compiles to
+  byte-identical regexps — but a proxy file **always runs on the Node runtime**,
+  and a `runtime` segment config inside one is itself a build error (E1031).
+  That matters more than it sounds: the Edge runtime used to be what physically
+  stopped that file importing `auth.ts` and its `pg`/`bcryptjs`, because neither
+  would load there. On Node that import compiles quietly and puts a Postgres
+  pool in front of every guarded request, so the rule now survives only as a
+  comment. The matchers also moved in the build output, from
+  `middleware-manifest.json` to `functions-config-manifest.json`. The official
+  codemod is a no-op here: it renames a function literally named `middleware`,
+  and this file does `export default auth`.
+
 - **Auth.js v5 is still beta** (`next-auth@5.0.0-beta.32`). `next-auth@latest`
   is v4 with an incompatible API. Do not "upgrade" to latest.
 - **Lucia is not an option.** It was deprecated in March 2025 and is now a guide
@@ -85,6 +111,27 @@ price. Retailer exports often use a price ladder with a bulk floor instead — a
 Scryfall market. Neither is wrong; they measure different things. Every price in
 this app is Scryfall market, consistently.
 
+Price history is read at `/collections/[id]/prices`: collection value over time,
+plus the biggest movers each way over 30 days, 90 days, a year, or everything
+recorded. The chart is inline SVG generated from pure functions in `lib/prices/`
+— no charting library, no client component, and the hover layer is CSS and
+`<title>`.
+
+Two rules make the numbers reconcile. Every price lookup keys on `finish` as
+well as the printing, because foil and non-foil of one printing are separate
+rows at separate prices. And every lookup takes the most recent row **at or
+before** the date being valued, so a card the weekly refresh had nothing new to
+say about keeps its last observed price instead of dropping out of the total.
+Movers rank by the money the collection actually gained or lost — quantity times
+the per-card move — with percent shown alongside, because twelve basics up three
+cents matter more than one card doubling from $0.02. Cards with no Scryfall
+price are counted and shown, never silently summed as zero.
+
+One wrinkle worth knowing: `/collections` reports the latest *history* price via
+`collection_values`, while a collection's card list totals the *live mirror*.
+Once history exists the two can differ by up to a week. The price page shows
+both, labelled.
+
 ## Collection data
 
 Real collections are personal data and live **outside this repo**. The committed
@@ -124,6 +171,36 @@ Three properties of real exports that a naive parser gets wrong:
    as the printing. Deduplicating on printing alone loses foils and misprices
    the rest.
 
+### Importing in the browser
+
+`/collections` creates a collection; the collection page takes an export either
+as a file upload or pasted into a textarea. Pasting is the common case — the
+format is plain text and it usually arrives on a clipboard.
+
+Tick **dry run** to see what an import would do without writing anything: lines
+parsed, lines resolved, printings written, physical cards matched, and every row
+that did not resolve. A real run reports the same numbers and lists unresolved
+rows out of `collection_import_issues`, with near-miss candidates for ambiguous
+lines. Nothing is ever silently dropped — a collection that quietly ends up
+smaller than the file it was built from is the failure this report exists to
+prevent.
+
+The default conflict mode is **set**, so re-uploading the same file is a no-op
+rather than doubling every quantity. Choose **add** only when the file really is
+a batch of newly-acquired cards.
+
+Browser uploads are capped at 960 KB, below the 2 MB the HTTP route accepts.
+Next rejects a Server Action body over 1 MB inside its own handler, before any
+of our code runs, so the cap sits under that in order to fail with a sentence
+instead of an error page. 960 KB is still about 21x the largest real export
+seen. Raising it means setting `experimental.serverActions.bodySizeLimit` in
+`next.config.ts`; until then a larger file goes through
+`scripts/import-collection.mjs`.
+
+`POST /api/collections/[id]/import` is unchanged and still the path for curl and
+scripts. Both front doors call the same `importCollection`, and both read the
+same `MAX_IMPORT_BYTES`.
+
 ## Schema notes
 
 `collection_cards.scryfall_id` and `deck_cards.scryfall_id` are deliberately
@@ -155,7 +232,7 @@ duplicate key, permanently locking that account out. Everything that writes
 - Docker image builds; `docker compose up` brings the stack to healthy with all
   13 tables and the `collection_values` view auto-created.
 - HTTP, against the running stack: `/` 200, `/signin` 200, `/collections` 307
-  when signed out and past middleware when signed in, `/api/auth/providers` 200
+  when signed out and past the proxy when signed in, `/api/auth/providers` 200
   listing only `credentials` (magic link correctly absent without SMTP).
 - Real sign-in over HTTP: correct password sets a session cookie; wrong password
   redirects with `CredentialsSignin` and sets none; a mixed-case email
@@ -171,12 +248,33 @@ duplicate key, permanently locking that account out. Everything that writes
   collection then imported at **1457 printings / 1705 cards / 71 foils / 1441
   distinct ids — 100% resolved by (set, collector), zero fallbacks, zero
   issues.** Exactly one card in the whole collection has no Scryfall price.
+- The proxy rename preserves the auth boundary exactly: the four compiled
+  matchers are byte-identical before and after, and against `.next/standalone`
+  each of `/collections`, `/collections/1`, `/decks`, `/decks/1` still 307s to
+  `/signin` when signed out while `/`, `/signin`, `/signup`, `/d/<slug>` and
+  `/api/auth/*` are never entered.
+- The whole suite runs green against one Postgres 16 with all six migrations
+  applied: **435/435**. Every file also passes alone on a fresh database. Both
+  facts are needed — the suite was 413/435 in one shared database until the
+  files were serialized and `import.test.ts` was made to clean up the mirror and
+  price rows that hang off no user and so cascade away with nothing.
 
 ## Next
 
-1. Deck editing in the UI.
-2. Public deck share links at `/d/[slug]` (schema is ready).
-3. First real Scryfall mirror population, then import a collection.
+The original roadmap is done. What is left is operational or known debt:
+
+1. First real Scryfall mirror population on the live box, then import a
+   collection and leave it a fortnight — two refreshes is the point at which the
+   price chart has anything to draw.
+2. A real migration runner. `db/migrations/` runs on first init only, so every
+   change after that is currently a manual `psql`.
+3. A password-reset flow, and an SMTP config so magic-link sign-in is exercised
+   at least once.
+4. `lib/prices/index.ts` is 840 lines and wants splitting along the section
+   banners already in it — series, chart geometry, queries — behind a barrel.
+   The constraint is that `test/prices.test.ts` loads one variable specifier
+   under `--experimental-strip-types`, which does no module resolution, so the
+   re-exports need explicit `.ts` extensions.
 
 ### Setting a password
 
@@ -194,13 +292,26 @@ history.
 
 ## Known gaps
 
-- The UI is read-only. There is no way to create or edit a deck in the browser
-  yet; decks must be inserted directly, and are then rendered and validated.
-- `middleware.ts` uses a convention Next 16 deprecates in favour of `proxy.ts`.
-  It works and is warned about on every build. Codemod:
-  `npx @next/codemod@canary middleware-to-proxy .`
+- Deleting a deck is permanent: no soft delete, no trash, no undo. That is why
+  it is gated behind typing the deck's name — the app ships no client
+  JavaScript, so `confirm()` is not available and the confirmation has to be a
+  real page state. `deck_cards` goes with the deck via `ON DELETE CASCADE`
+  (0004), and a shared deck stops resolving at `/d/<slug>` the moment the row
+  goes.
+- A deck's format can be changed after creation. It only selects which rules the
+  validator applies and rewrites no cards; a format the select cannot represent
+  (reachable only by a direct INSERT) survives a rename untouched.
 - Magic-link sign-in has never been exercised — no SMTP configured.
 - `card_price_history` only starts filling on the **second** refresh, because
   the first has no outgoing prices to preserve. `collection_values` falls back
   to current mirror prices until then (migration 0006), so nothing reads as
-  $0.00, but price *charts* have no data for the first week.
+  $0.00, and `/collections/[id]/prices` says plainly that a chart has no data
+  for the first week rather than drawing a flat line at zero.
+- The price series does `dates x holdings` lateral lookups — roughly 76,000
+  index seeks for a year of weekly snapshots over 1457 holdings. Fine on a home
+  server, untested at that size. The existing index is
+  `(scryfall_id, recorded_on DESC)`, so each seek post-filters `finish` over at
+  most three rows; a composite `(scryfall_id, finish, recorded_on DESC)` would
+  make it a single seek. Not worth a migration that silently never runs.
+- The rendered pages for browser import and price history have been verified by
+  test and by build, not by eye against a running stack with real data.

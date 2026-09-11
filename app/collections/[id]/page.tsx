@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { currentUserId, parseCollectionId } from "@/app/api/collections/access";
@@ -107,6 +108,11 @@ export default async function CollectionPage({
   return (
     <Shell
       title={collection.name}
+      actions={
+        <Link href={`/collections/${id}/prices`} style={{ fontSize: 12 }}>
+          price history →
+        </Link>
+      }
       subtitle={
         <>
           <span className="stat">{matched}</span> printings ·{" "}
