@@ -14,15 +14,13 @@
 import { z } from "zod";
 
 import { pool } from "@/lib/db";
+import { MAX_IMPORT_BYTES } from "@/lib/import/form";
 import { mergeDuplicates, parseMoxfieldText } from "@/lib/import/moxfield-text";
 import { importCollection } from "@/lib/import/resolve";
 import { currentUserId, jsonError, loadOwnedCollection, parseCollectionId } from "../../access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Roughly 40x the first real batch (45 KB / 1457 lines). */
-const MAX_BYTES = 2 * 1024 * 1024;
 
 const optionsSchema = z.object({
   onConflict: z.enum(["set", "add"]).default("set"),
@@ -47,7 +45,7 @@ async function readUpload(request: Request): Promise<Upload | { error: string }>
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return { error: "missing_file_part" };
-    if (file.size > MAX_BYTES) return { error: "file_too_large" };
+    if (file.size > MAX_IMPORT_BYTES) return { error: "file_too_large" };
     return {
       text: await file.text(),
       filename: file.name || null,
@@ -63,7 +61,7 @@ async function readUpload(request: Request): Promise<Upload | { error: string }>
   const text = await request.text();
   // Byte length, not string length — the export is UTF-8 and names carry
   // accented characters.
-  if (new TextEncoder().encode(text).length > MAX_BYTES) return { error: "file_too_large" };
+  if (new TextEncoder().encode(text).length > MAX_IMPORT_BYTES) return { error: "file_too_large" };
   return {
     text,
     filename: url.searchParams.get("filename"),
