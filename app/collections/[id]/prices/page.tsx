@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { currentUserId, loadOwnedCollection, parseCollectionId } from "@/app/api/collections/access";
 import { pool } from "@/lib/db";
-import { Shell, usd } from "@/app/_ui";
+import { Notice, Shell, usd } from "@/app/_ui";
 import {
   MOVERS_LIMIT,
   WINDOWS,
@@ -257,6 +257,15 @@ function Headline({
   );
 }
 
+/**
+ * A number with a caption, not a `Notice`, despite wearing the same aqua rule.
+ *
+ * `Notice` is a message panel: it carries `margin-bottom: 1rem`, which does not
+ * collapse inside the grid above and would leave four tiles sitting on a ragged
+ * baseline, and its `title` is an `h2` — four of these are metrics, not
+ * headings. The tone would lie too: `good` is a claim about the news, and the
+ * change tile is red as often as it is green.
+ */
 function Tile({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div
@@ -315,17 +324,18 @@ function NoChart({
   const outsideWindow = status === "empty" && snapshots > 0;
 
   return (
-    <div className="panel" style={{ borderLeft: "2px solid var(--yellow-dim)" }}>
-      <h2 style={{ color: "var(--fg0)" }}>
-        {outsideWindow
+    <Notice
+      tone="warn"
+      title={
+        outsideWindow
           ? "Nothing recorded in this window"
           : status === "empty"
             ? "No price history yet"
             : status === "single"
               ? "One snapshot so far"
-              : "Snapshots exist, but no prices in them"}
-      </h2>
-
+              : "Snapshots exist, but no prices in them"
+      }
+    >
       {outsideWindow ? (
         <p>
           This collection has {snapshots} snapshot{snapshots === 1 ? "" : "s"}, from {firstOn} to{" "}
@@ -373,7 +383,7 @@ function NoChart({
           </>
         ) : null}
       </p>
-    </div>
+    </Notice>
   );
 }
 

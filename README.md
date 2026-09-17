@@ -126,6 +126,16 @@ recorded. The chart is inline SVG generated from pure functions in `lib/prices/`
 — no charting library, no client component, and the hover layer is CSS and
 `<title>`.
 
+`lib/prices/` is four modules behind a barrel: `series.ts` for windows, money
+and the value series, `chart.ts` for plot coordinates and the movers' bar
+lengths, `movers.ts` for what moved between two snapshots, and `queries.ts` for
+the SQL and its loaders. Nothing in there imports anything at runtime from
+outside `lib/prices`, and the files reach each other with an explicit `.ts`
+extension, because `test/prices.test.ts` loads the barrel through a variable
+specifier under `--experimental-strip-types`, which does no module resolution.
+An extensionless specifier typechecks perfectly and then dies at runtime with
+`ERR_MODULE_NOT_FOUND`.
+
 Two rules make the numbers reconcile. Every price lookup keys on `finish` as
 well as the printing, because foil and non-foil of one printing are separate
 rows at separate prices. And every lookup takes the most recent row **at or
@@ -340,11 +350,6 @@ The original roadmap is done. What is left is operational or known debt:
    price chart has anything to draw.
 2. A password-reset flow, and an SMTP config so magic-link sign-in is exercised
    at least once.
-3. `lib/prices/index.ts` is 840 lines and wants splitting along the section
-   banners already in it — series, chart geometry, queries — behind a barrel.
-   The constraint is that `test/prices.test.ts` loads one variable specifier
-   under `--experimental-strip-types`, which does no module resolution, so the
-   re-exports need explicit `.ts` extensions.
 
 ### Setting a password
 
