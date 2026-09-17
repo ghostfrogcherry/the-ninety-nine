@@ -42,6 +42,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/lib ./lib
 
+# scripts/migrate.mjs reads the .sql files at runtime rather than embedding
+# them, so the migrations have to ship too. Only db/migrations — db/seed holds
+# fixtures the running app never reads.
+COPY --from=builder --chown=nextjs:nodejs /app/db/migrations ./db/migrations
+
 # The Scryfall mirror mount point, created here and owned by the runtime user.
 #
 # This is load-bearing. Docker seeds a fresh NAMED volume from the image's

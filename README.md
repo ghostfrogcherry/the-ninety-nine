@@ -25,8 +25,9 @@ more.
 | Deck editing | Done — create, rename, delete, add/remove/move, paste-import |
 | Public deck share links (`/d/[slug]`) | Done — rotatable slug that survives un-sharing |
 | Price history (`lib/prices/`, `/collections/[id]/prices`) | Done — value chart and movers |
+| Migration runner (`lib/migrate/`, `scripts/migrate.mjs`) | Done — checksummed ledger, transactional, adopts an existing database |
 
-300 tests pass without a database and 435 with one; `tsc --noEmit` is clean and
+316 tests pass without a database and 460 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free.
 
 The suite runs its files **serially** (`--test-concurrency=1` in the `test`
@@ -84,8 +85,16 @@ already uses (3000, 5055, 6767, 7878, 8080, 8096, 8686, 8989, 9696). Postgres is
 not published at all.
 
 Migrations in `db/migrations/` run via `/docker-entrypoint-initdb.d` on **first
-init only**. Once `data/db` exists they are ignored — later changes need a real
-migration runner.
+init only**. Once `data/db` exists that directory is ignored, so every later
+change goes through the runner:
+
+```sh
+docker compose --profile migrate run --rm migrate
+docker compose --profile migrate run --rm migrate --status
+```
+
+See [Migrations](#migrations) for what it does about the database you already
+have.
 
 Weekly Scryfall refresh (cron):
 
@@ -201,6 +210,59 @@ seen. Raising it means setting `experimental.serverActions.bodySizeLimit` in
 scripts. Both front doors call the same `importCollection`, and both read the
 same `MAX_IMPORT_BYTES`.
 
+## Migrations
+
+`db/migrations/NNNN_label.sql`, applied in filename order and recorded in a
+`schema_migrations` table with a sha256 of each file.
+
+Four properties worth knowing:
+
+- **A migration and the row recording it commit together.** Postgres has
+  transactional DDL, so a migration that fails halfway leaves neither
+  half-applied schema nor a ledger that lies about it. There is no "dirty"
+  state to repair by hand. The one thing this rules out is a statement that
+  refuses to run in a transaction — `CREATE INDEX CONCURRENTLY`, most likely —
+  which would need its own path.
+- **An applied migration is immutable.** Edit one after it has run and the next
+  run refuses, naming the file. The failure that guards against is someone
+  "fixing" 0003, watching it work on their empty database, and shipping schema
+  the deployed box will never have.
+- **Out-of-order migrations are refused.** Two branches each adding an `0007`
+  merge cleanly in git and then apply in whichever order the filenames happen
+  to sort, running the loser against schema its author never saw.
+  `--allow-out-of-order` exists for when you have looked and it is fine.
+- **One runner at a time**, via a Postgres advisory lock. Two would otherwise
+  read the same pending list and both try to apply it.
+
+`--status` lists what is applied and what is pending. `--dry-run` names what
+would run without running it.
+
+### The database you already have
+
+A box built before this existed has all six migrations applied by
+`/docker-entrypoint-initdb.d` and no ledger at all. The runner cannot tell that
+apart from a database six migrations behind, so it refuses and says so rather
+than guessing — applying them would fail on the first `CREATE TABLE`, and
+adopting them silently could skip a migration that box genuinely never ran.
+
+Adopt what it actually has, then run normally:
+
+```sh
+docker compose --profile migrate run --rm migrate --baseline=0006
+docker compose --profile migrate run --rm migrate
+```
+
+Pass the last version that box received, not necessarily the last on disk —
+`--baseline` with no version adopts everything, which is wrong if you upgraded
+and added `0007` in the same step.
+
+A **fresh** database needs none of this. `db/init/zzz_record_baseline.sh` is
+mounted alongside the migrations, sorts after them, and records what init just
+applied, so a new install comes up already reconciled. Its checksums are
+`sha256sum` over the same bytes `lib/migrate/` hashes with `createHash`; a test
+pins the two to the same known value, because if they ever disagree every fresh
+install reports all six migrations as edited-since-applied.
+
 ## Schema notes
 
 `collection_cards.scryfall_id` and `deck_cards.scryfall_id` are deliberately
@@ -253,11 +315,21 @@ duplicate key, permanently locking that account out. Everything that writes
   each of `/collections`, `/collections/1`, `/decks`, `/decks/1` still 307s to
   `/signin` when signed out while `/`, `/signin`, `/signup`, `/d/<slug>` and
   `/api/auth/*` are never entered.
-- The whole suite runs green against one Postgres 16 with all six migrations
-  applied: **435/435**. Every file also passes alone on a fresh database. Both
-  facts are needed — the suite was 413/435 in one shared database until the
-  files were serialized and `import.test.ts` was made to clean up the mirror and
-  price rows that hang off no user and so cascade away with nothing.
+- The migration runner was exercised against Postgres 16 on every path that
+  matters: the real migrations applied to an empty database and produced all 13
+  tables plus the ledger; a second run applied nothing; a migration that fails
+  mid-file rolled its schema back and recorded nothing, leaving the one before
+  it committed; an edited migration was refused and the pending one behind it
+  did not slip through; a dry run created no tables. The initdb hook and the
+  runner were then run against the same database and agreed on all six
+  checksums, with the runner reporting the box up to date rather than changed.
+- The whole suite runs green against one Postgres 16: **460/460**, and it is
+  repeatable — three consecutive runs against the same database all pass, and
+  leave `scryfall_cards`, `card_price_history`, `scryfall_bulk_imports` and
+  `users` back at zero. Every file also passes alone on a fresh database. Getting
+  there took serializing the files and making `import.test.ts`,
+  `scryfall.test.ts` and `prices.test.ts` each clean up the mirror, price and
+  bulk-import rows that hang off no user and so cascade away with nothing.
 
 ## Next
 
@@ -266,11 +338,9 @@ The original roadmap is done. What is left is operational or known debt:
 1. First real Scryfall mirror population on the live box, then import a
    collection and leave it a fortnight — two refreshes is the point at which the
    price chart has anything to draw.
-2. A real migration runner. `db/migrations/` runs on first init only, so every
-   change after that is currently a manual `psql`.
-3. A password-reset flow, and an SMTP config so magic-link sign-in is exercised
+2. A password-reset flow, and an SMTP config so magic-link sign-in is exercised
    at least once.
-4. `lib/prices/index.ts` is 840 lines and wants splitting along the section
+3. `lib/prices/index.ts` is 840 lines and wants splitting along the section
    banners already in it — series, chart geometry, queries — behind a barrel.
    The constraint is that `test/prices.test.ts` loads one variable specifier
    under `--experimental-strip-types`, which does no module resolution, so the
@@ -307,11 +377,17 @@ history.
   to current mirror prices until then (migration 0006), so nothing reads as
   $0.00, and `/collections/[id]/prices` says plainly that a chart has no data
   for the first week rather than drawing a flat line at zero.
-- The price series does `dates x holdings` lateral lookups — roughly 76,000
-  index seeks for a year of weekly snapshots over 1457 holdings. Fine on a home
-  server, untested at that size. The existing index is
-  `(scryfall_id, recorded_on DESC)`, so each seek post-filters `finish` over at
-  most three rows; a composite `(scryfall_id, finish, recorded_on DESC)` would
-  make it a single seek. Not worth a migration that silently never runs.
+- The price series does `dates x holdings` lateral lookups. Measured at the
+  real shape — 1457 holdings, 52 weekly snapshots, 78,000 price rows — that is
+  about 2.5s cold and 270ms warm, against 12ms for the movers list. Acceptable
+  for a page nobody lands on first, and the first load after a refresh is the
+  slow one.
+
+  A composite `(scryfall_id, finish, recorded_on DESC)` index was proposed for
+  this and is **not** worth adding: `card_price_history_pkey` is already
+  `(scryfall_id, finish, recorded_on)`, and Postgres serves the lookup from it
+  with a backward index scan, all three conditions as index conditions, in four
+  buffer hits. Adding the composite measured slightly slower on the full series
+  and cost 3.8 MB. Measure before adding the next one too.
 - The rendered pages for browser import and price history have been verified by
   test and by build, not by eye against a running stack with real data.

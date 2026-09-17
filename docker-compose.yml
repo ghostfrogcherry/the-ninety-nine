@@ -27,8 +27,13 @@ services:
     volumes:
       - ./data/db:/var/lib/postgresql/data
       # Applied in filename order on FIRST init only — an existing ./data/db
-      # is left untouched. Later schema changes need a real migration run.
+      # is left untouched. Later schema changes go through the `migrate`
+      # profile below.
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
+      # Runs last (hence zzz_) and records what the line above just applied,
+      # so a fresh database starts with a populated schema_migrations rather
+      # than a schema the runner cannot tell apart from six migrations behind.
+      - ./db/init/zzz_record_baseline.sh:/docker-entrypoint-initdb.d/zzz_record_baseline.sh:ro
     networks:
       - ninetynine
     healthcheck:
@@ -88,6 +93,29 @@ services:
     volumes:
       - scryfall-data:/data/scryfall
     command: ["node", "scripts/refresh-scryfall.mjs"]
+    networks:
+      - ninetynine
+
+  # Schema migrations. `/docker-entrypoint-initdb.d` only ever runs on first
+  # init, so this is how every change after the first deploy gets applied.
+  #
+  #   docker compose --profile migrate run --rm migrate
+  #   docker compose --profile migrate run --rm migrate --status
+  #
+  # `restart: no` for the same reason as the refresh: a migration that fails
+  # should stop and be read, not hot-loop against the database.
+  migrate:
+    image: ninetynine-app:local
+    container_name: ninetynine-migrate
+    profiles: ["migrate"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      TZ: ${TZ:-America/Chicago}
+    entrypoint: ["node", "scripts/migrate.mjs"]
     networks:
       - ninetynine
 

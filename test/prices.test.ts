@@ -822,6 +822,14 @@ describe("price history against postgres", { skip: !DB_URL && "TEST_DATABASE_URL
       );
     }
     await pool.query("DELETE FROM users WHERE email = $1", [email]);
+
+    // The mirror rows this file seeds hang off no user either, so the cascade
+    // above does not reach them. Without this the file leaves a mirror behind
+    // that import.test.ts then resolves extra cards against on the next run.
+    const mirrorIds = (JSON.parse(readFileSync(MIRROR_JSON, "utf8")) as Array<{ id: string }>).map((c) => c.id);
+    await pool.query("DELETE FROM card_price_history WHERE scryfall_id = ANY($1::uuid[])", [mirrorIds]);
+    await pool.query("DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])", [mirrorIds]);
+
     await pool.end();
   });
 
