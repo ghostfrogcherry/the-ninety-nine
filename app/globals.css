@@ -22,6 +22,7 @@
   --aqua: #8ec07c;
   --aqua-dim: #689d6a;
   --red: #fb4934;
+  --red-dim: #cc2412;
   --purple: #d3869b;
   --blue: #83a598;
   --green: #b8bb26;
@@ -382,7 +383,22 @@ tr:hover td { background: var(--bg1); }
   cursor: pointer;
 }
 .mini:hover { border-color: var(--yellow); color: var(--yellow); }
-.mini.danger:hover { border-color: var(--red); color: var(--red); }
+/* A destructive button must read as destructive BEFORE the pointer arrives.
+   Styling it only on :hover means it looks identical to `rename` until the
+   moment you are already over it, and it is invisible to anyone navigating by
+   keyboard or touch. The hover state stays as the brighter confirmation. */
+.mini.danger { border-color: var(--red-dim); color: var(--red); }
+.mini.danger:hover,
+.mini.danger:focus-visible { border-color: var(--red); color: var(--red); background: var(--bg3); }
+
+/* Notice: the coloured left rule shared by the delete confirmation, the import
+   summary and the deleted-deck line. Was hand-rolled inline in three places. */
+.notice { border-left: 2px solid var(--border); margin-bottom: 1rem; }
+.notice.bad { border-left-color: var(--red); }
+.notice.good { border-left-color: var(--aqua-dim); }
+.notice.warn { border-left-color: var(--yellow-dim); }
+.notice.bad > h2 { color: var(--red); }
+.notice-line { font-size: 12px; margin: 0; }
 .qtybox {
   width: 3.2rem;
   background: var(--bg0);
