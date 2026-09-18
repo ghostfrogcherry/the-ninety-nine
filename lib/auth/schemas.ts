@@ -63,6 +63,42 @@ export const signUpSchema = z.object({
 
 export const magicLinkSchema = z.object({ email: emailField });
 
+/** Asking for a reset link. Nothing but an address, and the same normalisation. */
+export const resetRequestSchema = z.object({ email: emailField });
+
+/**
+ * The token out of `/reset/<token>`, from a URL segment or a hidden field.
+ *
+ * Bounded and charset-checked before it reaches anything. The token is used as
+ * a SQL parameter so injection is not the risk — the risks are a multi-megabyte
+ * "token" being SHA-256'd on an unauthenticated path, and an unbounded string
+ * being echoed back into a redirect. `newResetToken` emits 43 base64url
+ * characters; anything outside that alphabet cannot be a token we issued, so it
+ * is rejected before a query is made rather than after one finds nothing.
+ */
+const resetTokenField = z
+  .string()
+  .trim()
+  .min(16, "That reset link is not valid")
+  .max(128, "That reset link is not valid")
+  .regex(/^[A-Za-z0-9_-]+$/, "That reset link is not valid");
+
+/**
+ * Setting the new password.
+ *
+ * Uses the SIGN-UP password rules, not the sign-in ones: this is a password
+ * being chosen, so the 8-character minimum and the 72-byte bcrypt ceiling both
+ * apply. Telling someone their brand-new password is too short is help;
+ * telling them at a sign-in prompt would be a disclosure.
+ */
+export const resetCompleteSchema = z.object({
+  token: resetTokenField,
+  password: signUpPasswordField,
+});
+
+/** Just the token, for the GET that decides whether to render the form at all. */
+export const resetTokenSchema = z.object({ token: resetTokenField });
+
 export type Credentials = z.infer<typeof credentialsSchema>;
 export type SignUpInput = z.infer<typeof signUpSchema>;
 

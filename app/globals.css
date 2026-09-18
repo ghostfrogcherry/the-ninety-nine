@@ -393,7 +393,7 @@ tr:hover td { background: var(--bg1); }
 
 /* Notice: the coloured left rule shared by the delete confirmation, the import
    summary and the deleted-deck line. Was hand-rolled inline in three places. */
-.notice { border-left: 2px solid var(--border); margin-bottom: 1rem; }
+.notice { border-left: 2px solid var(--border); margin-bottom: 1rem; font-size: .875rem; }
 .notice.bad { border-left-color: var(--red); }
 .notice.good { border-left-color: var(--aqua-dim); }
 .notice.warn { border-left-color: var(--yellow-dim); }

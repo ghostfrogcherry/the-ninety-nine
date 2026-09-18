@@ -21,8 +21,17 @@ import type { NextAuthConfig } from "next-auth";
 
 export const PROTECTED_PREFIXES = ["/collections", "/decks"] as const;
 
-/** Routes that must stay reachable signed-out. Public share links are v1. */
-export const PUBLIC_PREFIXES = ["/d/", "/api/auth/", "/signin", "/signup"] as const;
+/**
+ * Routes that must stay reachable signed-out. Public share links are v1.
+ *
+ * `/reset` is here for the obvious reason — someone who cannot sign in is
+ * exactly who needs it — and it is the one entry that is currently belt and
+ * braces: `proxy.ts` guards an allow-list of paths that does not include it, so
+ * a reset request never reaches this callback at all. Listed anyway, because
+ * the guarded set is a matcher in another file and "nobody will ever add
+ * `/:path*` to it" is not a property worth relying on.
+ */
+export const PUBLIC_PREFIXES = ["/d/", "/api/auth/", "/signin", "/signup", "/reset"] as const;
 
 export const authConfig = {
   /**
@@ -58,7 +67,20 @@ export const authConfig = {
     // Send auth errors back to the sign-in form rather than Auth.js's default
     // error page, so a bad password looks like a form error, not a crash.
     error: "/signin",
-    verifyRequest: "/signin?sent=1",
+    /**
+     * No query string here, and that is not a style choice. @auth/core builds
+     * this redirect as `${pages.verifyRequest}${url.search}` — a bare
+     * concatenation — and it always arrives with `?provider=…&type=email`
+     * attached. `"/signin?sent=1"` therefore produced
+     * `/signin?sent=1?provider=nodemailer&type=email`, in which `sent` parses
+     * as `1?provider=nodemailer` and the "check your email" notice never
+     * rendered. The first magic-link sign-in this project ever completed is
+     * what found it.
+     *
+     * The page keys off the parameters Auth.js appends instead; `?sent=1` still
+     * works for anything that links here by hand.
+     */
+    verifyRequest: "/signin",
     newUser: "/collections",
   },
 

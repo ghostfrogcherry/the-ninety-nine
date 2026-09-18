@@ -19,7 +19,7 @@ more.
 | Collection import in the browser (`app/collections/`) | Done — upload or paste, dry-run preview |
 | Scryfall bulk mirror (`lib/scryfall/`, `scripts/refresh-scryfall.mjs`) | Done — 26 tests |
 | Commander validation (`lib/commander/`) | Done — 32 tests, mutation-checked |
-| Auth.js v5 (`auth.ts`, `lib/auth/`) | Done — sign-in verified end-to-end over HTTP |
+| Auth.js v5 (`auth.ts`, `lib/auth/`) | Done — password, magic link and reset all verified end-to-end over HTTP |
 | API routes (`app/api/collections/`) | Done |
 | Collection browser | Done — filters, infinite scroll, foil and non-foil priced apart |
 | Deck editing | Done — create, rename, delete, add/remove/move, paste-import |
@@ -27,7 +27,7 @@ more.
 | Price history (`lib/prices/`, `/collections/[id]/prices`) | Done — value chart and movers |
 | Migration runner (`lib/migrate/`, `scripts/migrate.mjs`) | Done — checksummed ledger, transactional, adopts an existing database |
 
-316 tests pass without a database and 460 with one; `tsc --noEmit` is clean and
+336 tests pass without a database and 496 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free.
 
 The suite runs its files **serially** (`--test-concurrency=1` in the `test`
@@ -325,6 +325,20 @@ duplicate key, permanently locking that account out. Everything that writes
   each of `/collections`, `/collections/1`, `/decks`, `/decks/1` still 307s to
   `/signin` when signed out while `/`, `/signin`, `/signup`, `/d/<slug>` and
   `/api/auth/*` are never entered.
+- Password reset, over HTTP against a running stack: a mixed-case address
+  reaches the lowercase row; a request for an unknown address returns the same
+  redirect in about the same time (707ms vs 718ms, padded by a floor); the
+  emailed link sets a new password, the old one stops working, and re-opening
+  the link reports it spent.
+- **Magic-link sign-in, exercised for the first time in this project's life**,
+  against a capture directory rather than a mail server: the provider appears in
+  `/api/auth/providers`, the mail is captured, the callback sets a session,
+  `/collections` serves 200, and a second use of the link fails with
+  `Verification`. Completing that flow found a real bug — `pages.verifyRequest`
+  was concatenated with Auth.js's own query string into `/signin?sent=1?provider=…`,
+  so the "check your email" notice never rendered. Fixed. TLS, SMTP AUTH and
+  deliverability remain unexercised; the SMTP wire path itself is covered by a
+  fake SMTP server in `test/reset.test.ts`.
 - The migration runner was exercised against Postgres 16 on every path that
   matters: the real migrations applied to an empty database and produced all 13
   tables plus the ledger; a second run applied nothing; a migration that fails
@@ -333,7 +347,7 @@ duplicate key, permanently locking that account out. Everything that writes
   did not slip through; a dry run created no tables. The initdb hook and the
   runner were then run against the same database and agreed on all six
   checksums, with the runner reporting the box up to date rather than changed.
-- The whole suite runs green against one Postgres 16: **460/460**, and it is
+- The whole suite runs green against one Postgres 16: **496/496**, and it is
   repeatable — three consecutive runs against the same database all pass, and
   leave `scryfall_cards`, `card_price_history`, `scryfall_bulk_imports` and
   `users` back at zero. Every file also passes alone on a fresh database. Getting
@@ -348,13 +362,44 @@ The original roadmap is done. What is left is operational or known debt:
 1. First real Scryfall mirror population on the live box, then import a
    collection and leave it a fortnight — two refreshes is the point at which the
    price chart has anything to draw.
-2. A password-reset flow, and an SMTP config so magic-link sign-in is exercised
-   at least once.
+
+### Email
+
+Magic-link sign-in and password reset share one mail setting and appear
+together. Both stay off unless `EMAIL_FROM` is set **and** there is somewhere to
+send:
+
+- `SMTP_URL=smtp://user:pass@host:587`, or the separate `SMTP_HOST`, `SMTP_PORT`,
+  `SMTP_USER`, `SMTP_PASS` and `SMTP_SECURE`.
+- `MAIL_CAPTURE_DIR=/data/mail` — no SMTP server at all. Every message is written
+  there as an `.eml` file and nothing is dialled; the app logs the file path,
+  never the link, because container logs get read by people the mail was not
+  sent to. This is how to exercise either flow on a box with no mail server,
+  which is most of them. SMTP wins if both are set.
+
+Links in mail are built from `AUTH_URL`, **never** from the request's `Host`
+header. A request carrying someone else's `Host` would otherwise mail a real
+user a link pointing at an attacker's server, which is the classic way this
+feature leaks accounts. With `AUTH_URL` unset, nothing is sent.
+
+### Forgotten passwords
+
+"Forgot your password?" on the sign-in page mails a single-use link that expires
+in an hour. It needs mail configured; with none, the page says so and points at
+the command below instead.
+
+Requesting a reset issues one link per account, so asking again kills the
+previous one, and completing a reset invalidates every outstanding link for that
+user. Only a SHA-256 of the token is stored, so a database dump yields no
+working link. Sessions are JWTs, so a reset does **not** sign other devices out;
+they expire on their own. Revoking them would mean a database read on every
+guarded request, which is the thing the JWT strategy exists to avoid.
 
 ### Setting a password
 
-There is no password-reset flow yet, and a magic-link-only user has
-`password_hash` NULL by design, so a fresh account gets its first password here:
+A magic-link-only user has `password_hash` NULL by design, and an account
+created outside the sign-up form has no password at all, so both get their first
+one here:
 
 ```sh
 docker compose exec app node scripts/set-password.mjs you@example.com
@@ -376,7 +421,6 @@ history.
 - A deck's format can be changed after creation. It only selects which rules the
   validator applies and rewrites no cards; a format the select cannot represent
   (reachable only by a direct INSERT) survives a rename untouched.
-- Magic-link sign-in has never been exercised — no SMTP configured.
 - `card_price_history` only starts filling on the **second** refresh, because
   the first has no outgoing prices to preserve. `collection_values` falls back
   to current mirror prices until then (migration 0006), so nothing reads as

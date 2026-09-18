@@ -3,7 +3,14 @@ import { redirect } from "next/navigation";
 
 import { auth, isEmailProviderConfigured } from "@/auth";
 import { signInWithCredentials, signInWithMagicLink } from "@/lib/auth/actions";
-import { Field, Notice, buttonStyle, readableError } from "../_components";
+import {
+  Field,
+  Notice,
+  buttonStyle,
+  firstParam,
+  readableError,
+  secondaryButtonStyle,
+} from "../_components";
 
 export const metadata = { title: "Sign in · The Ninety Nine" };
 
@@ -24,20 +31,30 @@ export default async function SignInPage({
   if (session?.user) redirect("/collections");
 
   const params = await searchParams;
-  const first = (key: string): string | undefined => {
-    const value = params[key];
-    return Array.isArray(value) ? value[0] : value;
-  };
 
-  const error = first("error");
-  const sent = first("sent") === "1";
+  const error = firstParam(params, "error");
+  // Auth.js bounces here after mailing a sign-in link (pages.verifyRequest),
+  // with `?provider=…&type=email` of its own making — see lib/auth/config.ts
+  // for why that, rather than a `sent=1` we choose, is what says "it went".
+  // `?sent=1` is still honoured for anything linking here by hand.
+  const sent = firstParam(params, "sent") === "1" || firstParam(params, "type") === "email";
+  const reset = firstParam(params, "reset") === "done";
   const magicLinkAvailable = isEmailProviderConfigured();
 
   return (
     <>
-      {error ? <Notice tone="error">{readableError(error)}</Notice> : null}
+      {error ? <Notice tone="bad">{readableError(error)}</Notice> : null}
       {sent ? (
-        <Notice tone="info">Check your email for a sign-in link. It expires in 24 hours.</Notice>
+        <Notice tone="good" title="Check your email">
+          A sign-in link is on its way. It expires in 24 hours.
+        </Notice>
+      ) : null}
+      {reset ? (
+        /* Set by completePasswordResetAction. Says only that it worked — the
+           reset flow never confirms which address it belonged to. */
+        <Notice tone="good" title="Password updated">
+          Sign in with your new password.
+        </Notice>
       ) : null}
 
       <form action={signInWithCredentials}>
@@ -53,12 +70,16 @@ export default async function SignInPage({
         </button>
       </form>
 
+      <p style={{ marginTop: ".75rem", fontSize: ".8125rem" }}>
+        <Link href="/reset">Forgot your password?</Link>
+      </p>
+
       {magicLinkAvailable ? (
         <>
-          <hr style={{ margin: "1.5rem 0", border: 0, borderTop: "1px solid #ddd" }} />
+          <hr style={{ margin: "1.5rem 0", border: 0, borderTop: "1px solid var(--border)" }} />
           <form action={signInWithMagicLink}>
             <Field label="Or email me a sign-in link" name="email" type="email" />
-            <button type="submit" style={{ ...buttonStyle, background: "#fff", color: "#333" }}>
+            <button type="submit" style={secondaryButtonStyle}>
               Send link
             </button>
           </form>

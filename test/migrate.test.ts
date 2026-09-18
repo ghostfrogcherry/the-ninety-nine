@@ -266,11 +266,20 @@ describe("migration runner against postgres", { skip: DB_URL ? false : "TEST_DAT
       const first = await runMigrations(db, { dir: DIR });
       assert.ok(first.applied.length >= 6);
 
+      // By name, not by count. A count has to be edited by whoever adds the
+      // next migration, and they find out by watching this fail for a reason
+      // that has nothing to do with the runner — which is exactly how the
+      // injection guard in filters.test.ts broke when this table arrived.
+      // What the assertion means is "the migrations built their schema", so
+      // it names one table from the first migration, one from the last, and
+      // the ledger the runner itself created.
+      const wanted = ["users", "decks", "card_price_history", "schema_migrations"];
       const { rows: tables } = await db.query(
-        "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'",
+        `SELECT table_name FROM information_schema.tables
+          WHERE table_schema='public' AND table_type='BASE TABLE' AND table_name = ANY($1::text[])`,
+        [wanted],
       );
-      // 13 real tables plus schema_migrations itself.
-      assert.equal(tables[0].n, 14);
+      assert.deepEqual(tables.map((r: { table_name: string }) => r.table_name).sort(), [...wanted].sort());
 
       const second = await runMigrations(db, { dir: DIR });
       assert.deepEqual(second.applied, [], "a second run must apply nothing");

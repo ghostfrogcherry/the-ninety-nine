@@ -10,7 +10,7 @@ db/seed/collection-batch-*
 db/seed/*-card-index.html
 db/seed/*.private.*
 
-node_modules/
+node_modules
 .next/
 out/
 next-env.d.ts

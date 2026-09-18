@@ -77,7 +77,12 @@ export function Notice({ tone = "good", title, children }: {
   children: ReactNode;
 }) {
   return (
-    <div className={`panel notice ${tone}`}>
+    <div
+      className={`panel notice ${tone}`}
+      // A failure has to interrupt a screen reader; "your link is on its way"
+      // should wait its turn.
+      role={tone === "bad" ? "alert" : "status"}
+    >
       {title ? <h2>{title}</h2> : null}
       {children}
     </div>
