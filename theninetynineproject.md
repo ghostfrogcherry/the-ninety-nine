@@ -1,4 +1,4 @@
-# CLAUDE.md
+# The Ninety Nine — project notes
 
 Working notes for this repo. The README is the user-facing document and is kept
 accurate — read it. This file is the things that are **not** obvious from
