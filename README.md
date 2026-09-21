@@ -26,6 +26,7 @@ more.
 | Public deck share links (`/d/[slug]`) | Done — rotatable slug that survives un-sharing |
 | Price history (`lib/prices/`, `/collections/[id]/prices`) | Done — value chart and movers |
 | Migration runner (`lib/migrate/`, `scripts/migrate.mjs`) | Done — checksummed ledger, transactional, adopts an existing database |
+| Backup and restore (`scripts/backup.sh`, `scripts/restore.sh`) | Done — every dump is restored and row-checked before it is kept |
 
 336 tests pass without a database and 496 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free.
@@ -273,6 +274,59 @@ applied, so a new install comes up already reconciled. Its checksums are
 pins the two to the same known value, because if they ever disagree every fresh
 install reports all six migrations as edited-since-applied.
 
+## Backups
+
+```sh
+docker compose --profile backup run --rm backup
+```
+
+Writes `data/backups/ninetynine-<timestamp>.dump` and keeps the newest 14.
+Weekly, from the same cron as the Scryfall refresh, is the intended cadence.
+
+**Every dump is restored before it is kept.** The script dumps to a temporary
+name, restores that into a scratch database, compares row counts for the tables
+holding data you would grieve, drops the scratch database, and only then renames
+the file into place. A dump that will not restore is reported and deleted rather
+than left sitting in the directory looking exactly like one that will — which is
+the failure this whole section exists to prevent, and the reason "we have
+nightly dumps" is not the same sentence as "we have backups". `--no-verify`
+skips it and is worth much less.
+
+`--keep=N` changes retention. Pruning matches only this script's own filename
+pattern, so nothing you put in that directory by hand is ever deleted by it.
+
+`--no-mirror` excludes `scryfall_cards` row data, which the weekly refresh
+rebuilds from a public bulk file. It makes the dump far smaller at the cost of
+one refresh after a restore. `card_price_history` is never excluded and never
+should be: those are snapshots Scryfall does not keep and nothing can rebuild.
+
+### Restoring
+
+```sh
+docker compose stop app
+docker compose --profile backup run --rm restore --list
+docker compose --profile backup run --rm restore --file=ninetynine-<timestamp>.dump
+docker compose start app
+```
+
+Stop the app first, or requests read half-restored tables.
+
+The restore refuses if the target already holds this app's schema, and prints
+the drop-and-recreate command rather than running it. Dropping a database is the
+one irreversible step in the story, and a script that does it for you is a
+script that eventually does it on the wrong box. `--force` skips the check.
+
+A dump carries `schema_migrations` with it, so a restored database is already
+reconciled and `migrate` reports it up to date rather than trying to reapply
+anything.
+
+**Verified end to end, not just written:** a 500-card mirror with 400 collection
+rows, a 99-card deck and 1600 price snapshots dumped, restored into an empty
+database, and compared table by table — identical, ledger included. A dump with
+a corrupted byte fails `pg_restore --exit-on-error` and is refused. Retention
+pruned 3 of 5 dumps while leaving an unrelated file and a hand-renamed dump
+untouched.
+
 ## Schema notes
 
 `collection_cards.scryfall_id` and `deck_cards.scryfall_id` are deliberately
@@ -325,6 +379,11 @@ duplicate key, permanently locking that account out. Everything that writes
   each of `/collections`, `/collections/1`, `/decks`, `/decks/1` still 307s to
   `/signin` when signed out while `/`, `/signin`, `/signup`, `/d/<slug>` and
   `/api/auth/*` are never entered.
+- Backup and restore, against Postgres with real-shaped data: a dump restored
+  into an empty database matches the original table by table including
+  `schema_migrations`; a dump with one corrupted byte is refused by
+  `pg_restore --exit-on-error`; retention pruned 3 of 5 dumps and left an
+  unrelated file and a hand-renamed dump alone.
 - Password reset, over HTTP against a running stack: a mixed-case address
   reaches the lowercase row; a request for an unknown address returns the same
   redirect in about the same time (707ms vs 718ms, padded by a floor); the
@@ -361,7 +420,8 @@ The original roadmap is done. What is left is operational or known debt:
 
 1. First real Scryfall mirror population on the live box, then import a
    collection and leave it a fortnight — two refreshes is the point at which the
-   price chart has anything to draw.
+   price chart has anything to draw. This is also the only way to see the import
+   and price pages rendered against real data, which nothing has done yet.
 
 ### Email
 
@@ -439,4 +499,13 @@ history.
   buffer hits. Adding the composite measured slightly slower on the full series
   and cost 3.8 MB. Measure before adding the next one too.
 - The rendered pages for browser import and price history have been verified by
-  test and by build, not by eye against a running stack with real data.
+  test and by build, not by eye against a running stack with real data. The auth
+  and reset pages are the exception: those were driven over HTTP.
+- Only the `db` service has a healthcheck. `restart: unless-stopped` on the app
+  therefore restarts a crashed container but not a wedged one.
+- Nothing runs the test suite automatically. There is no CI.
+- The database tests share one database, must run serially, and each file has to
+  delete the rows it wrote. Three files have had to be fixed for forgetting.
+  Correctness there is the test author's job rather than a property of the
+  setup; a database per file, or a transaction rolled back per test, would make
+  it structural.

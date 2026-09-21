@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import {
   currentUserId,
@@ -52,11 +52,13 @@ function formCollectionId(value: FormDataEntryValue | null): number | null {
 async function ownedCollectionOr404(collectionId: number | null): Promise<{ id: number }> {
   const userId = await currentUserId();
   if (!userId) redirect("/signin");
-  if (collectionId === null) throw new Error("invalid collection id");
+  // `notFound()` rather than a thrown Error, matching the page's handling of
+  // the same condition — see the note in app/decks/_actions.ts.
+  if (collectionId === null) notFound();
   const collection = await loadOwnedCollection(collectionId, userId);
   // Someone else's collection and a nonexistent one are indistinguishable here
   // on purpose — otherwise this confirms which collection ids exist.
-  if (!collection) throw new Error("collection not found");
+  if (!collection) notFound();
   return { id: collection.id };
 }
 

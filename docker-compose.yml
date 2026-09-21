@@ -119,6 +119,62 @@ services:
     networks:
       - ninetynine
 
+  # Backups. Runs the POSTGRES image, not the app image: pg_dump has to match
+  # the server version it dumps, and the app image is node:22-alpine with no
+  # Postgres client in it at all.
+  #
+  #   docker compose --profile backup run --rm backup
+  #   docker compose --profile backup run --rm backup --keep=30 --no-mirror
+  #
+  # The dump is written to a temporary name and renamed only after it has been
+  # restored into a scratch database and its row counts compared against the
+  # live one, so a dump that cannot be restored is never left looking like one
+  # that can.
+  backup:
+    image: postgres:17-alpine
+    container_name: ninetynine-backup
+    profiles: ["backup"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      BACKUP_DIR: /backups
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./data/backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    networks:
+      - ninetynine
+
+  # Restore. Same profile, same image, deliberately a separate service so that
+  # `--profile backup run --rm backup` can never restore by accident.
+  #
+  #   docker compose stop app
+  #   docker compose --profile backup run --rm restore --list
+  #   docker compose --profile backup run --rm restore --file=ninetynine-….dump
+  #   docker compose start app
+  restore:
+    image: postgres:17-alpine
+    container_name: ninetynine-restore
+    profiles: ["backup"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      BACKUP_DIR: /backups
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./data/backups:/backups
+      - ./scripts/restore.sh:/restore.sh:ro
+    entrypoint: ["/bin/sh", "/restore.sh"]
+    networks:
+      - ninetynine
+
 volumes:
   scryfall-data:
 
