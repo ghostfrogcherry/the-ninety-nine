@@ -390,7 +390,7 @@ function ImportSummary({ sp }: { sp: SearchParams }) {
         <div style={{ marginTop: "0.5rem" }}>
           <div style={{ fontSize: 12, color: "var(--orange)" }}>
             {missed.length + more} line{missed.length + more === 1 ? "" : "s"} could not be matched
-            in the local mirror and were NOT added:
+            in the local mirror and {missed.length + more === 1 ? "was" : "were"} NOT added:
           </div>
           <ul style={{ margin: "0.3rem 0 0", paddingLeft: "1.1rem", fontSize: 11, color: "var(--dim)" }}>
             {missed.map((m, i) => <li key={i}>{m}</li>)}

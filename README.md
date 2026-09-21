@@ -27,6 +27,7 @@ more.
 | Price history (`lib/prices/`, `/collections/[id]/prices`) | Done — value chart and movers |
 | Migration runner (`lib/migrate/`, `scripts/migrate.mjs`) | Done — checksummed ledger, transactional, adopts an existing database |
 | Backup and restore (`scripts/backup.sh`, `scripts/restore.sh`) | Done — every dump is restored and row-checked before it is kept |
+| Demo seed (`scripts/seed-demo.mjs`) | Done — a clickable install without a 78 MB download |
 
 336 tests pass without a database and 496 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free.
@@ -96,6 +97,30 @@ docker compose --profile migrate run --rm migrate --status
 
 See [Migrations](#migrations) for what it does about the database you already
 have.
+
+### Trying it before you own any of this
+
+A brand-new install has an empty Scryfall mirror, and the importer resolves
+against that mirror — so without one, every line of an import lands in
+`collection_import_issues` and the collection comes out empty, which looks
+exactly like a broken importer. The real fix is a refresh, but that is a 78 MB
+download of 117,620 cards before any page has anything on it.
+
+To click around first, seed the committed fixture instead:
+
+```sh
+docker compose exec app node scripts/seed-demo.mjs you@example.com
+docker compose exec app node scripts/set-password.mjs you@example.com
+```
+
+That loads 17 printings into the mirror, creates the user and a collection, and
+imports the example export through the same `importCollection` the CLI and the
+browser upload use — 19 printings, 48 cards, $62.17. It sets no password,
+because a default one is either worth attacking or ends up in shell history.
+
+It refuses to run if the mirror already holds cards, so it cannot mix fake
+printings into a real one. There is no price history and there cannot be: that
+only accumulates from real refreshes a week apart.
 
 Weekly Scryfall refresh (cron):
 
