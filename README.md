@@ -91,8 +91,9 @@ peer-accepts.
 
 ```sh
 cp .env.example .env
-# set POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32), and AUTH_URL
-# to the address you will browse to — http://localhost:3010 on your own machine
+# set POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32). AUTH_URL
+# defaults to http://localhost:3010; on a server, set it to the address you
+# browse to, or sign-in redirects there instead
 docker compose up -d --wait
 ```
 
