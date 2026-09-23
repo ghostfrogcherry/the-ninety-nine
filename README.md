@@ -292,12 +292,15 @@ Pass the last version that box received, not necessarily the last on disk —
 `--baseline` with no version adopts everything, which is wrong if you upgraded
 and added `0007` in the same step.
 
-A **fresh** database needs none of this. `db/init/zzz_record_baseline.sh` is
-mounted alongside the migrations, sorts after them, and records what init just
-applied, so a new install comes up already reconciled. Its checksums are
-`sha256sum` over the same bytes `lib/migrate/` hashes with `createHash`; a test
-pins the two to the same known value, because if they ever disagree every fresh
-install reports all six migrations as edited-since-applied.
+A **fresh** database needs none of this. `db/migrations/zzz_record_baseline.sh`
+sits in the same directory as the migrations, sorts after them, and records what
+init just applied, so a new install comes up already reconciled. It is in that
+directory rather than mounted on top of it because a file bind-mounted inside a
+read-only directory mount fails on first boot. Its checksums are `sha256sum`
+over the same bytes `lib/migrate/` hashes with `createHash`; a test pins the two
+to the same known value, because if they ever disagree every fresh install
+reports all its migrations as edited-since-applied. `.gitattributes` forces LF
+for the same reason — a Windows checkout with CRLF would hash differently.
 
 ## Backups
 

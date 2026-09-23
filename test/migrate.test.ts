@@ -90,7 +90,7 @@ describe("checksum", () => {
   });
 
   it("matches sha256sum over the same bytes", () => {
-    // The initdb hook (db/init/zzz_record_baseline.sh) hashes with sha256sum.
+    // The initdb hook (db/migrations/zzz_record_baseline.sh) hashes with sha256sum.
     // If these two ever disagree, every fresh install reports all its
     // migrations as edited-since-applied on the first run.
     assert.equal(

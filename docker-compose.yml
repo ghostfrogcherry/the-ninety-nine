@@ -29,11 +29,18 @@ services:
       # Applied in filename order on FIRST init only — an existing ./data/db
       # is left untouched. Later schema changes go through the `migrate`
       # profile below.
+      #
+      # db/migrations/zzz_record_baseline.sh rides along in the same directory,
+      # sorts after every NNNN_*.sql, and records what they just applied, so a
+      # fresh database starts with a populated schema_migrations rather than a
+      # schema the runner cannot tell apart from seven migrations behind.
+      #
+      # It lives IN this directory rather than being mounted on top of it. A
+      # file bind-mounted inside a read-only directory bind mount makes Docker
+      # create the mount point in the read-only parent, which fails on first
+      # boot with "read-only file system" — or, on some setups, leaves an empty
+      # stub file behind in the host's db/migrations.
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
-      # Runs last (hence zzz_) and records what the line above just applied,
-      # so a fresh database starts with a populated schema_migrations rather
-      # than a schema the runner cannot tell apart from six migrations behind.
-      - ./db/init/zzz_record_baseline.sh:/docker-entrypoint-initdb.d/zzz_record_baseline.sh:ro
     networks:
       - ninetynine
     healthcheck:

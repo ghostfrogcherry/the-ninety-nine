@@ -10,15 +10,20 @@
 # The `zzz_` prefix is load-bearing: this must sort after every `NNNN_*.sql`
 # beside it, or it records migrations that have not run yet.
 #
-# Mounted separately from db/migrations/ (see docker-compose.yml) so that
-# directory stays exactly "the migrations", which is what the runner globs and
-# what a human reads to understand the schema.
+# It lives in db/migrations/ beside the files it records, rather than being
+# mounted on top of that directory — see the comment on the mount in
+# docker-compose.yml for why nesting fails. The runner ignores it: its name does
+# not match NNNN_label.sql.
 #
 # The checksum must match what lib/migrate/index.mjs computes, or the very next
 # `migrate` run reports all six as edited-since-applied. Both are sha256 over
 # the file's bytes, hex — `sha256sum` here, `createHash("sha256")` there.
 
-set -eu
+# `-e` only, not `-eu`. The postgres entrypoint EXECUTES an init script that is
+# executable and SOURCES one that is not — and a checkout that lost its exec bit
+# gets sourced. Sourced, `set -u` would leak into the entrypoint's own shell and
+# can abort it later on a variable it deliberately leaves unset.
+set -e
 
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/docker-entrypoint-initdb.d}"
 

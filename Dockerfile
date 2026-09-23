@@ -43,9 +43,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 COPY --from=builder --chown=nextjs:nodejs /app/lib ./lib
 
 # scripts/migrate.mjs reads the .sql files at runtime rather than embedding
-# them, so the migrations have to ship too. Only db/migrations — db/seed holds
-# fixtures the running app never reads.
+# them, so the migrations have to ship too.
 COPY --from=builder --chown=nextjs:nodejs /app/db/migrations ./db/migrations
+
+# scripts/seed-demo.mjs reads these two at runtime. Without them the documented
+# first step on a new install — `docker compose exec app node
+# scripts/seed-demo.mjs` — dies on file-not-found. Only the committed example-*
+# fixtures: a real collection scan sitting in db/seed is excluded by
+# .dockerignore and must never be baked into an image layer.
+COPY --from=builder --chown=nextjs:nodejs /app/db/seed/example-mirror.json /app/db/seed/example-collection.txt ./db/seed/
 
 # The Scryfall mirror mount point, created here and owned by the runtime user.
 #
