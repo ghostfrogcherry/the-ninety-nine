@@ -8,6 +8,7 @@ import {
   searchMirror, toDeckEntries,
 } from "@/lib/deck";
 import { Identity, Shell, usd } from "@/app/_ui";
+import { Account } from "@/app/_account";
 import { AddPanel, ImportSummary, PastePanel } from "./_add";
 import { CurvePanel, LegalityPanel } from "./_analysis";
 import { CardLine } from "./_cards";
@@ -48,6 +49,7 @@ export default async function DeckPage({
 
   return (
     <Shell
+      account={<Account />}
       title={deck.name}
       actions={<ShareControl deckId={deckId} isPublic={deck.is_public} slug={deck.public_slug} />}
       subtitle={

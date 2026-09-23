@@ -5,6 +5,7 @@ import { currentUserId } from "@/app/api/collections/access";
 import { query } from "@/lib/db";
 import { DECK_FORMATS } from "@/lib/deck";
 import { Badge, Empty, Notice, Shell } from "@/app/_ui";
+import { Account } from "@/app/_account";
 import { createDeckAction } from "./_actions";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,7 @@ export default async function DecksPage({
 
   return (
     <Shell
+      account={<Account />}
       title="decks"
       subtitle={rows.length ? `${rows.length} deck${rows.length === 1 ? "" : "s"}` : "no decks yet"}
     >

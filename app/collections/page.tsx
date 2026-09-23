@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { currentUserId } from "@/app/api/collections/access";
 import { query } from "@/lib/db";
 import { Badge, Empty, Shell, usd } from "@/app/_ui";
+import { Account } from "@/app/_account";
 import { createCollectionAction } from "./_actions";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export default async function CollectionsPage() {
 
   return (
     <Shell
+      account={<Account />}
       title="Collections"
       subtitle={
         rows.length

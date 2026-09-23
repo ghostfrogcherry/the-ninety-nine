@@ -10,6 +10,7 @@ import {
 } from "@/lib/collection/filters";
 import { IMPORT_URL_KEYS } from "@/lib/import/form";
 import { Shell, usd } from "@/app/_ui";
+import { Account } from "@/app/_account";
 import { FilterBar, ViewToggle } from "./_filters";
 import { CardFeed, type FeedCard } from "./_feed";
 import { ImportSection } from "./_import";
@@ -107,6 +108,7 @@ export default async function CollectionPage({
 
   return (
     <Shell
+      account={<Account />}
       title={collection.name}
       actions={
         <Link href={`/collections/${id}/prices`} style={{ fontSize: 12 }}>

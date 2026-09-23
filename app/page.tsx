@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Account } from "@/app/_account";
+
 /**
  * Landing page. Deliberately plain — collections and decks are the real
  * surface; this exists so "/" is not a 404 and gives a way in.
@@ -12,10 +14,10 @@ export default function Home() {
         Self-hosted MTG collection tracker and Commander deck builder.
       </p>
 
-      <nav style={{ display: "flex", gap: "1.25rem", marginTop: "2.5rem" }}>
+      <nav className="home-nav">
         <Link href="/collections">Collections</Link>
         <Link href="/decks">Decks</Link>
-        <Link href="/signin">Sign in</Link>
+        <Account />
       </nav>
     </main>
   );

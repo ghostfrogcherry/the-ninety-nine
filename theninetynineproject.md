@@ -78,6 +78,10 @@ because pg_dump must match its server and the app image has no Postgres client.
 
   Count them with `grep -rlE '^"use client"' app`, not a bare grep:
   `prices/_chart.tsx` mentions the directive in a comment.
+- **Signed-in pages pass `account={<Account />}` to `Shell`** (`app/_account.tsx`):
+  the email and a sign-out **form**, a POST, never a link. It is a slot, not
+  something `Shell` renders itself, because `app/error.tsx` is a client
+  component that renders `Shell`.
 - **Every mutation re-checks ownership server-side.** See `ownedDeckOr404`. A
   hidden form field is user input, not a permission.
 - **Not-yours and not-real both `notFound()`**, in pages *and* in actions, so
