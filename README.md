@@ -30,7 +30,10 @@ more.
 | Demo seed (`scripts/seed-demo.mjs`) | Done — a clickable install without a 78 MB download |
 
 336 tests pass without a database and 496 with one; `tsc --noEmit` is clean and
-`next build --webpack` is warning-free.
+`next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
+all three to that on every push and pull request: the suite runs twice against
+one Postgres 17 and fails if any database test skips, the build fails on any
+warning, and the Docker image is built and every compose profile validated.
 
 The suite runs its files **serially** (`--test-concurrency=1` in the `test`
 script) and that flag is load-bearing, not taste. Node runs test files in
@@ -531,7 +534,6 @@ history.
   and reset pages are the exception: those were driven over HTTP.
 - Only the `db` service has a healthcheck. `restart: unless-stopped` on the app
   therefore restarts a crashed container but not a wedged one.
-- Nothing runs the test suite automatically. There is no CI.
 - The database tests share one database, must run serially, and each file has to
   delete the rows it wrote. Three files have had to be fixed for forgetting.
   Correctness there is the test author's job rather than a property of the
