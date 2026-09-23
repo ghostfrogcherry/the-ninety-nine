@@ -36,7 +36,8 @@ const issuesSpecifier = "../lib/import/issues.ts";
 
 const {
   ERROR_PARAM, IMPORT_ERRORS, IMPORT_ERROR_TEXT, IMPORT_PARAM, IMPORT_URL_KEYS,
-  MAX_FORM_BYTES, MISSED_IN_URL, MISSED_PARAM, MORE_PARAM, SOURCE_PARAM,
+  MAX_ACTION_BODY_BYTES, MAX_IMPORT_BYTES, MISSED_IN_URL, MISSED_PARAM,
+  MORE_PARAM, SOURCE_PARAM,
   decodeImportSummary, encodeImportSummary, isUpload, issueCount,
   parseCheckbox, parseCollectionName, parseImportError, parseImportId,
   parseLanguage, parseOnConflict, readImportSource, truncateMissed,
@@ -197,7 +198,7 @@ describe("choosing the import source", () => {
     let read = false;
     const huge = {
       name: "huge.txt",
-      size: MAX_FORM_BYTES + 1,
+      size: MAX_IMPORT_BYTES + 1,
       text: async () => { read = true; return ""; },
     };
     const r = await readImportSource(huge, "");
@@ -208,13 +209,25 @@ describe("choosing the import source", () => {
   });
 
   it("measures a paste in bytes, not characters", async () => {
-    // 3-byte characters: a string comfortably under the limit by `.length` is
-    // over it once encoded, which is how an accented export sneaks past a naive
-    // check. 400 KB of them is 1.2 MB.
-    const wide = "é".repeat(MAX_FORM_BYTES);
-    assert.ok(wide.length <= MAX_FORM_BYTES);
+    // "é" is two bytes in UTF-8: a string exactly at the limit by `.length` is
+    // twice over it once encoded, which is how an accented export sneaks past a
+    // naive check.
+    const wide = "é".repeat(MAX_IMPORT_BYTES);
+    assert.ok(wide.length <= MAX_IMPORT_BYTES);
     const r = await readImportSource(null, wide);
     assert.equal(!r.ok && r.error, "too_large");
+  });
+
+  it("accepts a file at the ceiling, which the browser used to refuse", async () => {
+    // Browser uploads were capped at 960 KB until next.config.ts raised Next's
+    // Server Action body limit. readImportSource now defaults to the ceiling
+    // the HTTP route enforces, so a file one front door accepts the other must.
+    const r = await readImportSource({
+      name: "big.txt",
+      size: MAX_IMPORT_BYTES,
+      text: async () => "1 Sol Ring (C19) 193\n",
+    }, "");
+    assert.equal(r.ok, true);
   });
 
   it("recognises anything File-shaped and nothing else", () => {
@@ -222,6 +235,28 @@ describe("choosing the import source", () => {
     for (const bad of [null, undefined, "text", 5, {}, { size: 1 }, { text: () => "" }]) {
       assert.equal(isUpload(bad), false);
     }
+  });
+});
+
+describe("the Server Action body limit", () => {
+  it("leaves room for a file over the ceiling to reach the action", () => {
+    // Next refuses a body over its limit with a 500 before the action runs, so
+    // the limit must clear MAX_IMPORT_BYTES by enough that an export somewhat
+    // over it is still refused by readImportSource, in words.
+    assert.ok(MAX_ACTION_BODY_BYTES >= MAX_IMPORT_BYTES + 512 * 1024);
+  });
+
+  it("is what next.config.ts actually hands Next", async () => {
+    // The constant is only half the fix. Replacing the import in next.config.ts
+    // with a literal that later drifts, or dropping the key, would silently
+    // bring back Next's 1 MB default and a 500 for any upload over it. The
+    // config imports only the `next` types (erased) and lib/import/form.ts, so
+    // it loads here without a Next server.
+    const configSpecifier = "../next.config.ts";
+    const { default: config } = (await import(configSpecifier)) as {
+      default: { experimental?: { serverActions?: { bodySizeLimit?: unknown } } };
+    };
+    assert.equal(config.experimental?.serverActions?.bodySizeLimit, MAX_ACTION_BODY_BYTES);
   });
 });
 

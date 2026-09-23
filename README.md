@@ -247,13 +247,13 @@ The default conflict mode is **set**, so re-uploading the same file is a no-op
 rather than doubling every quantity. Choose **add** only when the file really is
 a batch of newly-acquired cards.
 
-Browser uploads are capped at 960 KB, below the 2 MB the HTTP route accepts.
-Next rejects a Server Action body over 1 MB inside its own handler, before any
-of our code runs, so the cap sits under that in order to fail with a sentence
-instead of an error page. 960 KB is still about 21x the largest real export
-seen. Raising it means setting `experimental.serverActions.bodySizeLimit` in
-`next.config.ts`; until then a larger file goes through
-`scripts/import-collection.mjs`.
+An import is capped at 2 MB, from the browser and over HTTP alike — about 40x
+the largest real export seen. A larger file goes through
+`scripts/import-collection.mjs`, which has no limit. Next rejects a Server
+Action body over its limit inside its own handler, before any of our code runs,
+so `next.config.ts` sets `experimental.serverActions.bodySizeLimit` to twice
+the cap: a file somewhat over 2 MB still reaches the action and is refused with
+a sentence rather than an error page.
 
 `POST /api/collections/[id]/import` is unchanged and still the path for curl and
 scripts. Both front doors call the same `importCollection`, and both read the
