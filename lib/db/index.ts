@@ -9,13 +9,24 @@ import { Pool } from "pg";
  */
 const globalForDb = globalThis as unknown as { pool?: Pool };
 
-export const pool =
-  globalForDb.pool ??
-  new Pool({
+export const pool = globalForDb.pool ?? createPool();
+
+function createPool(): Pool {
+  const p = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 10,
     idleTimeoutMillis: 30_000,
   });
+  // An idle client whose server goes away (a Postgres restart, a failover)
+  // emits "error" on the pool. With no listener that is an uncaughtException:
+  // Next survives it, but logs the whole pg Client — user, host, database —
+  // once per idle client, which reads like a crash. The pool has already
+  // discarded the client; the next query simply opens a fresh one.
+  p.on("error", (err) => {
+    console.error(`db: idle client error (${err.message})`);
+  });
+  return p;
+}
 
 if (process.env.NODE_ENV !== "production") globalForDb.pool = pool;
 
