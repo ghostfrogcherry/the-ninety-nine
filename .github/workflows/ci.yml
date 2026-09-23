@@ -1,0 +1,180 @@
+# Continuous integration.
+#
+# Two jobs, independent so a Docker failure never hides a test failure or the
+# other way round:
+#
+#   check  typecheck, the full suite TWICE against one real Postgres, build
+#   image  the Dockerfile and every compose file / profile combination
+#
+# Nothing is pushed or published. This workflow only reads the repository.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# The workflow runs code from pull requests, so the token it hands that code
+# can read the repository and do nothing else.
+permissions:
+  contents: read
+
+# A second push to a branch makes the first run's result worthless; cancel it
+# rather than queue behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # An explicit `shell: bash` is what turns on `-o pipefail` in Actions. The
+    # implicit default is `bash -e` WITHOUT pipefail, so `npm test | tee` below
+    # would report tee's exit status — always 0 — and a failing suite would
+    # show green.
+    shell: bash
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    # A database test that leaks a pool keeps its process alive forever. Fail
+    # in minutes, not after the six-hour default.
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # The same image docker-compose.yml deploys, so the suite runs against
+        # the server version and build the app actually meets.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ninetynine
+          POSTGRES_USER: ninetynine
+          POSTGRES_PASSWORD: t
+        ports:
+          - 5432:5432
+        # Probe over TCP, not the socket. The image runs a temporary server
+        # during init that listens only on the unix socket, then restarts; a
+        # plain `pg_isready` reports ready against that temporary server and
+        # the migrations would race its shutdown. The real server is the only
+        # one that ever binds TCP.
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U ninetynine -d ninetynine"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 because the Dockerfile builds on node:22-alpine: CI passing on
+      # a newer Node than the image ships proves nothing about the image.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci`, not `npm install`: it fails if package-lock.json and
+      # package.json disagree instead of quietly rewriting the lock, and it
+      # installs exactly the versions the Dockerfile's `npm ci` will.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # The database tests expect a migrated schema and do not build one. The
+      # runner rather than a psql loop, because the runner is how every schema
+      # change after first deploy reaches a real database, and it has otherwise
+      # only been exercised against Postgres 16.
+      #
+      # DATABASE_URL is set on this step alone. Were it set on the job, every
+      # later step would inherit it — the exact leak TEST_DATABASE_URL exists to
+      # rule out.
+      - name: Apply migrations
+        run: node scripts/migrate.mjs
+        env:
+          DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
+
+      # The database tests skip cleanly when TEST_DATABASE_URL is unset, by
+      # design. So a typo in the variable name turns this step into the 336
+      # pure tests passing and the database half silently not running at all.
+      # The grep fails the build on any skip, and prints which.
+      #
+      # It looks for TAP's `# SKIP` directive, NOT the `# skipped N` summary:
+      # the database tests skip as whole `describe` blocks, and Node counts a
+      # skipped suite nowhere in that summary — a run with every database
+      # suite skipped still reports `# skipped 0`. TAP is what Node prints when
+      # stdout is not a terminal, which under `tee` it never is.
+      #
+      # Run twice against the same database, because every database test must
+      # delete what it wrote and three files have already been fixed for
+      # forgetting. A leftover row usually passes the run that wrote it and
+      # breaks the one after.
+      - name: Test (first run)
+        run: |
+          npm test | tee "$RUNNER_TEMP/test-run-1.log"
+          if grep -E '^ *ok [0-9]+ - .* # SKIP' "$RUNNER_TEMP/test-run-1.log"; then
+            echo "::error::tests were skipped — is TEST_DATABASE_URL reaching the suite?"
+            exit 1
+          fi
+        env:
+          TEST_DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
+
+      - name: Test (second run, same database)
+        run: |
+          npm test | tee "$RUNNER_TEMP/test-run-2.log"
+          if grep -E '^ *ok [0-9]+ - .* # SKIP' "$RUNNER_TEMP/test-run-2.log"; then
+            echo "::error::tests were skipped — is TEST_DATABASE_URL reaching the suite?"
+            exit 1
+          fi
+        env:
+          TEST_DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
+
+      # `--webpack` is inside the npm script; call the script, never `next
+      # build` directly, or Turbopack builds with no .next/standalone and the
+      # image that copies it cannot start.
+      #
+      # The build must stay warning-free, and `next build` exits 0 with
+      # "⚠ Compiled with warnings", so the exit status alone enforces nothing.
+      # Every Next warning carries the ⚠ prefix, but so does one notice that
+      # has nothing to do with the code: "No build cache found", printed on
+      # every CI run without a restored .next/cache. That one line is excluded
+      # by its text; any other ⚠ fails the step and is printed. stderr is
+      # folded in because that is where Next writes its warnings.
+      - name: Build
+        run: |
+          npm run build 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if grep '⚠' "$RUNNER_TEMP/build.log" | grep -v 'No build cache found'; then
+            echo "::error::next build printed warnings; it must stay warning-free"
+            exit 1
+          fi
+
+  image:
+    name: Docker image and compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The only place the Dockerfile is exercised. `next build` passing in the
+      # other job does not prove the image builds: the stages copy specific
+      # paths out of the build, and a missing one fails only here.
+      - name: Build image
+        run: docker build --tag ninetynine-app:ci .
+
+      # Every combination a user is told to run. Each profile adds services,
+      # and a profile's services are not validated unless it is enabled.
+      #
+      # Against .env.example rather than invented values: the compose file
+      # refuses to start without POSTGRES_PASSWORD and AUTH_SECRET, so this
+      # also catches a newly required variable that .env.example — the file a
+      # first install copies — does not supply.
+      - name: Validate compose files
+        run: |
+          set -x
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example --profile migrate --profile backup --profile refresh config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml --profile migrate --profile backup --profile refresh config --quiet

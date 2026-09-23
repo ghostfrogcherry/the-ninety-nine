@@ -31,7 +31,10 @@ more.
 | Health check (`/api/health`, `lib/health/`) | Done — compose healthcheck on the app, Caddy waits for it |
 
 344 tests pass without a database and 507 with one; `tsc --noEmit` is clean and
-`next build --webpack` is warning-free.
+`next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
+all three to that on every push and pull request: the suite runs twice against
+one Postgres 17 and fails if any database test skips, the build fails on any
+warning, and the Docker image is built and every compose profile validated.
 
 The suite runs its files **serially** (`--test-concurrency=1` in the `test`
 script) and that flag is load-bearing, not taste. Node runs test files in
@@ -587,7 +590,6 @@ history.
 - The healthcheck itself has been run against the standalone server, not inside
   a container: there has been no Docker daemon to run `docker compose up` with
   it.
-- Nothing runs the test suite automatically. There is no CI.
 - The database tests share one database, must run serially, and each file has to
   delete the rows it wrote. Three files have had to be fixed for forgetting.
   Correctness there is the test author's job rather than a property of the

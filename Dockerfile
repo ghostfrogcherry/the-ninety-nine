@@ -12,6 +12,10 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# The runner stage copies public/, and COPY --from fails the whole build on a
+# missing source. This repo has no static assets, git cannot track an empty
+# directory, and so without this line the image does not build at all.
+RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
 # Build-time only. Real secrets are injected at runtime by compose; Next just
 # needs these present so `next build` can statically evaluate config.
