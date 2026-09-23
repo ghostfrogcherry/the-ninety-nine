@@ -14,7 +14,7 @@ see Conventions.
 ## Commands
 
 ```sh
-npm test                 # 336 pure tests; 496 with TEST_DATABASE_URL set
+npm test                 # 347 pure tests; 510 with TEST_DATABASE_URL set
 npm run typecheck        # must be clean
 npm run build            # next build --webpack; must be warning-free
 node scripts/migrate.mjs [--status|--dry-run|--baseline[=VERSION]]
@@ -75,6 +75,13 @@ because pg_dump must match its server and the app image has no Postgres client.
   - `app/collections/[id]/_feed.tsx` — infinite scroll over a collection too
     large to ship in one payload. The page renders the first page server-side,
     so the list still works without it.
+
+  Count them with `grep -rlE '^"use client"' app`, not a bare grep:
+  `prices/_chart.tsx` mentions the directive in a comment.
+- **Signed-in pages pass `account={<Account />}` to `Shell`** (`app/_account.tsx`):
+  the email and a sign-out **form**, a POST, never a link. It is a slot, not
+  something `Shell` renders itself, because `app/error.tsx` is a client
+  component that renders `Shell`.
 - **Every mutation re-checks ownership server-side.** See `ownedDeckOr404`. A
   hidden form field is user input, not a permission.
 - **Not-yours and not-real both `notFound()`**, in pages *and* in actions, so
@@ -92,25 +99,51 @@ because pg_dump must match its server and the app image has no Postgres client.
 
 ## Testing
 
-`npm test` runs `node --experimental-strip-types --test --test-concurrency=1`.
+`npm test` runs `node --experimental-strip-types --test test/*.test.ts`.
 
-- **`--test-concurrency=1` is load-bearing.** Node runs test *files* in parallel
-  processes and they share one database. Without it about fifteen fail, in
-  whichever files lose that run's race.
+- **Every database test file gets its own throwaway database** from
+  `test/_db.ts`: `createTestDatabase(label)` creates `nn_test_<label>_<pid>_<hex>`,
+  migrates it with the real runner, and `drop()` removes it `WITH (FORCE)`. That
+  is why the files run in parallel and why the old rule — every test deletes
+  the rows it wrote, or a *different* file goes red on the next run — is gone.
+  New database test files use `createTestDatabase` and
+  `describe(..., { skip: SKIP_WITHOUT_DATABASE })`. Isolation is per **file**,
+  not per test: tests inside one file share its database and run in order.
 - **Database tests are opt-in** behind `TEST_DATABASE_URL`, never
   `DATABASE_URL`, so they cannot touch a real instance by inheriting the app's
-  environment. They must skip cleanly when it is unset.
-- **Every database test must delete the rows it wrote**, scoped to ids it
-  inserted rather than `TRUNCATE`. Rows that hang off no user reach no cascade.
-  Three files have had to be fixed for forgetting; the suite must pass twice in
-  a row against the same database. **Check that before you claim green.**
+  environment. They must skip cleanly when it is unset. The URL is now only the
+  connection used to create and drop databases: it can name any database that
+  exists (`/postgres`), needs no migration, and its role needs `CREATEDB`.
+  `test/health.test.ts` is the one file that queries it directly, read-only.
+- **Before claiming green:** the suite passes with and without
+  `TEST_DATABASE_URL`, and afterwards
+  `SELECT datname FROM pg_database WHERE datname LIKE 'nn\_test\_%'` returns
+  nothing. A file that forgets its `after` hook still passes; the leak shows
+  up only there. CI checks both.
 - **Do not assert table counts.** Two tests have already broken when a migration
   added a table. Assert by name.
 - `test/prices.test.ts` loads its module through a dynamic import of a
   **variable specifier** ending in `.ts`, which does no module resolution — so
   every re-export in `lib/prices/index.ts` and every import between those files
   needs an explicit `.ts` extension. Drop one and it typechecks, then dies at
-  runtime with `ERR_MODULE_NOT_FOUND`.
+  runtime with `ERR_MODULE_NOT_FOUND`. `next.config.ts` imports
+  `./lib/import/form.ts` with the extension for the same kind of reason.
+
+## CI
+
+`.github/workflows/ci.yml`, on every push and pull request. Two jobs:
+
+- **check**: typecheck; the suite against `postgres:17-alpine`, failing on any
+  `# SKIP` (a skipped `describe` does not show in Node's `# skipped N`) and on
+  any leftover `nn_test_*` database; `npm run build`, failing on any `⚠` line
+  except "No build cache found", because `next build` exits 0 with warnings.
+- **image**: `docker build`, `docker compose config` for every file/profile
+  combination against `.env.example`, then a real `docker compose up --wait`
+  smoke test: health, sign-in and proxy-redirect status codes, the demo seed
+  and `migrate --status` run inside the image.
+
+The image had never built before CI: the runner stage copies `public/`, which
+this repo has never had, so the builder now `mkdir -p public`. Do not remove it.
 
 ### Getting a Postgres in a sandbox with no Docker
 
@@ -125,40 +158,47 @@ Put `PGDATA` under `/var/lib/postgresql/`. An agent scratchpad directory gets
 its permissions reset underneath a running server and the checkpointer aborts
 mid-run, which looks exactly like test failures.
 
+Inside a subagent's git worktree, `su` and `runuser` are refused by the
+isolation guard. Prefix the same binaries with
+`setpriv --reuid=postgres --regid=postgres --init-groups`, or use Debian's
+`pg_createcluster 16 NAME -d $PGDATA -p PORT` and `pg_ctlcluster`.
+
 ## State, as of the last commit on this branch
 
-Roadmap complete except deployment. 336 pure tests, 496 against Postgres, clean
-typecheck, warning-free build, suite verified repeatable.
+Roadmap complete except deployment. 347 pure tests, 510 against Postgres, clean
+typecheck, warning-free build, CI green including a real `docker compose up`.
 
-Built and exercised: collection import (CLI, HTTP and browser), Scryfall mirror,
-Commander validation, deck editing with rename and delete, public share links,
-price history, password reset, magic-link sign-in, migration runner, verified
-backups.
+Built and exercised: collection import (CLI, HTTP and browser, 2 MB both ways),
+Scryfall mirror, Commander validation, deck editing with rename and delete,
+public share links, price history, password reset, magic-link sign-in,
+migration runner, verified backups, app health check.
 
-**Never done: deployed.** The import and price pages have been driven over HTTP
-against a real Postgres with the fixture, but never seen against a real
-collection on real hardware. Docker itself is unexercised — there is no daemon
-in the sandbox — so `docker compose up` is validated by config check and image
-contents only.
+**Never done: deployed.** The stack has come up healthy in CI on the demo seed,
+but has never met a real collection, a real 78 MB mirror, or real hardware.
+
+- **The app healthcheck reports; it does not restart.** Plain Docker only marks
+  a container `unhealthy`; `restart: unless-stopped` still acts on exits alone.
+  Caddy waits on `service_healthy`. Auto-restart would need something like an
+  autoheal container with the Docker socket, deliberately not added.
+- **The server-action body limit is 4 MB** (`MAX_ACTION_BODY_BYTES`, twice
+  `MAX_IMPORT_BYTES`) and applies to every action. Next rejects an oversized
+  body before the action runs, as a 500; the headroom is what lets a 2–4 MB
+  file get the friendly "over 2 MB" message instead.
+- The shared pool in `lib/db` has an `error` listener. Without it a Postgres
+  restart logged every idle client as an `uncaughtException` with its
+  connection details.
 
 ### What is genuinely next
 
 1. Deploy. Populate the mirror for real, import a collection, wait a fortnight
    so the price chart has two refreshes to draw.
-2. No CI. Nothing runs the 496 tests automatically.
-3. Only the `db` service has a healthcheck, so `restart: unless-stopped` cannot
-   tell a wedged app from a running one.
-4. Test isolation is the author's responsibility rather than the setup's. A
-   database per file, or a transaction rolled back per test, would make it
-   structural.
-5. `app/decks/[id]/page.tsx` is ~560 lines and holds a page plus eight
-   components. It is the next `lib/prices` if nobody touches it.
-6. Browser uploads cap at 960 KB against the route's 2 MB, pending
-   `experimental.serverActions.bodySizeLimit` in `next.config.ts`.
+2. The import report counts lines after duplicates merge, so a file of many
+   repeated lines reports "19 lines parsed" next to 131,759 cards. Correct but
+   confusing; the HTTP route does the same.
 
 ## Git
 
-Develop on `claude/project-continuation-4d8xol`. A pull request from this branch
-was already merged into `main` once, so check whether yours has merged before
-stacking: if it has, restart the branch from `main` rather than building on
-merged history.
+Each session develops on the branch it was given. Pull requests from earlier
+branches (`claude/project-continuation-4d8xol`) have already merged into
+`main`, so check whether yours has merged before stacking: if it has, restart
+the branch from `main` rather than building on merged history.

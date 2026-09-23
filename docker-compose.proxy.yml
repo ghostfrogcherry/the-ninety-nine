@@ -21,9 +21,14 @@ services:
     image: caddy:2
     container_name: ninetynine-caddy
     restart: unless-stopped
+    # service_healthy, not service_started: a started app may still be booting,
+    # or up with no database behind it, and Caddy in front of that serves 502s
+    # that look like a proxy fault. The check is the app's healthcheck in
+    # docker-compose.yml. If the app never goes healthy, `up` fails and says
+    # which container — the right place to find out.
     depends_on:
       app:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"

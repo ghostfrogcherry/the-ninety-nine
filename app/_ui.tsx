@@ -2,11 +2,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 /** Page chrome shared by every view. */
-export function Shell({ title, subtitle, actions, children }: {
+export function Shell({ title, subtitle, actions, account, children }: {
   title: string;
   subtitle?: ReactNode;
   /** Optional controls rendered on the title row, right-aligned. */
   actions?: ReactNode;
+  /** The signed-in user and sign-out, at the end of the nav: `<Account />`. */
+  account?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -15,6 +17,7 @@ export function Shell({ title, subtitle, actions, children }: {
         <Link href="/" className="brand">the·ninety·nine</Link>
         <Link href="/collections">collections</Link>
         <Link href="/decks">decks</Link>
+        {account}
       </nav>
 
       <header style={{ display: "flex", alignItems: "baseline", gap: "1rem", flexWrap: "wrap" }}>

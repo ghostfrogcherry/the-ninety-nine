@@ -28,16 +28,29 @@ more.
 | Migration runner (`lib/migrate/`, `scripts/migrate.mjs`) | Done — checksummed ledger, transactional, adopts an existing database |
 | Backup and restore (`scripts/backup.sh`, `scripts/restore.sh`) | Done — every dump is restored and row-checked before it is kept |
 | Demo seed (`scripts/seed-demo.mjs`) | Done — a clickable install without a 78 MB download |
+| Health check (`/api/health`, `lib/health/`) | Done — compose healthcheck on the app, Caddy waits for it |
 
-336 tests pass without a database and 496 with one; `tsc --noEmit` is clean and
-`next build --webpack` is warning-free.
+347 tests pass without a database and 510 with one; `tsc --noEmit` is clean and
+`next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
+all three to that on every push and pull request: the suite runs against
+Postgres 17 and fails if any database test skips or leaves its database behind,
+the build fails on any warning, and the Docker image is built and every compose
+profile validated.
 
-The suite runs its files **serially** (`--test-concurrency=1` in the `test`
-script) and that flag is load-bearing, not taste. Node runs test files in
-parallel processes by default, and every database-backed file seeds the same
-shared fixture into the same tables, so in parallel they delete each other's
-rows mid-assertion — about fifteen failures, in whichever files lose that run's
-race.
+The database tests are opt-in and need only a Postgres server and a role with
+`CREATEDB` — no schema, no migrations:
+
+```sh
+TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55432/postgres npm test
+```
+
+Each database-backed test file creates its own throwaway database, runs the real
+migrations into it, and drops it when it finishes (`test/_db.ts`).
+`TEST_DATABASE_URL` is only the connection used to create and drop those; no
+test reads or writes the database it names, and `DATABASE_URL` is never
+consulted. Because no two files share a database, the files run in parallel —
+Node's default — and nothing a test writes can leak into another file or the
+next run.
 
 ## Stack
 
@@ -78,9 +91,14 @@ peer-accepts.
 
 ```sh
 cp .env.example .env
-# set POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32)
-docker compose up -d
+# set POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32). AUTH_URL
+# defaults to http://localhost:3010; on a server, set it to the address you
+# browse to, or sign-in redirects there instead
+docker compose up -d --wait
 ```
+
+`--wait` returns once the app's healthcheck passes, typically within half a
+minute of the database coming up; `docker compose ps` shows `healthy`.
 
 The app listens on **3010**, chosen to miss the ports a typical arr stack
 already uses (3000, 5055, 6767, 7878, 8080, 8096, 8686, 8989, 9696). Postgres is
@@ -234,13 +252,13 @@ The default conflict mode is **set**, so re-uploading the same file is a no-op
 rather than doubling every quantity. Choose **add** only when the file really is
 a batch of newly-acquired cards.
 
-Browser uploads are capped at 960 KB, below the 2 MB the HTTP route accepts.
-Next rejects a Server Action body over 1 MB inside its own handler, before any
-of our code runs, so the cap sits under that in order to fail with a sentence
-instead of an error page. 960 KB is still about 21x the largest real export
-seen. Raising it means setting `experimental.serverActions.bodySizeLimit` in
-`next.config.ts`; until then a larger file goes through
-`scripts/import-collection.mjs`.
+An import is capped at 2 MB, from the browser and over HTTP alike — about 40x
+the largest real export seen. A larger file goes through
+`scripts/import-collection.mjs`, which has no limit. Next rejects a Server
+Action body over its limit inside its own handler, before any of our code runs,
+so `next.config.ts` sets `experimental.serverActions.bodySizeLimit` to twice
+the cap: a file somewhat over 2 MB still reaches the action and is refused with
+a sentence rather than an error page.
 
 `POST /api/collections/[id]/import` is unchanged and still the path for curl and
 scripts. Both front doors call the same `importCollection`, and both read the
@@ -355,6 +373,49 @@ a corrupted byte fails `pg_restore --exit-on-error` and is refused. Retention
 pruned 3 of 5 dumps while leaving an unrelated file and a hand-renamed dump
 untouched.
 
+## Health
+
+`GET /api/health` answers `200 {"ok":true}` when the app can run `SELECT 1`
+through its own connection pool within two seconds, and `503 {"ok":false}` when
+it cannot. The `app` service's compose healthcheck polls it every 30 seconds, so
+`docker compose ps` shows `healthy` or `unhealthy` rather than just `Up`:
+
+```sh
+docker compose ps app
+docker inspect --format '{{json .State.Health}}' ninetynine-app
+```
+
+The check goes through the pool on purpose. The ways this app goes wrong
+without exiting — every pooled connection stuck, an event loop pinned, the
+database gone from under a server that is still listening — all still accept
+TCP, so a check that only asked "is the port open" would pass every one of them.
+
+The endpoint is unauthenticated, because Docker's probe has no session. It is
+outside the `proxy.ts` matcher rather than exempted from it, so the auth
+boundary did not move. For the same reason the body is a boolean and nothing
+else: why a check failed goes to the app's log as
+`health: database check failed (timeout|error)`, never into the response.
+
+The probe is `node -e` with `fetch`, because the runtime image has no curl or
+wget. It lives in `docker-compose.yml` and deliberately **not** in the
+Dockerfile: the same image runs the `migrate` and `scryfall-refresh` one-shots,
+which never start a server and would all be marked unhealthy.
+
+With the Caddy override, Caddy waits for the app to be **healthy**, not merely
+started, so it does not come up serving 502s in front of an app that is still
+booting or has no database.
+
+**What it does not do: restart anything.** Plain Docker records a container as
+unhealthy and leaves it running; only Swarm acts on health. `restart:
+unless-stopped` still restarts on exit alone. Automatic recovery from a wedged
+app needs something that watches health status and restarts on it, such as an
+autoheal container with access to the Docker socket, which this stack does not
+ship — handing a container the Docker socket is root on the host.
+
+Because the check depends on the database, a Postgres outage marks the app
+unhealthy too. That is accurate — every page needs the database — but it means
+`unhealthy` on the app is a reason to look at `db` first.
+
 ## Schema notes
 
 `collection_cards.scryfall_id` and `deck_cards.scryfall_id` are deliberately
@@ -383,8 +444,14 @@ duplicate key, permanently locking that account out. Everything that writes
 - All migrations apply clean to `postgres:17-alpine`.
 - Constraints: foil + non-foil of one printing both store; a true duplicate is
   rejected; `quantity = 0` is rejected; email uniqueness is case-insensitive.
-- Docker image builds; `docker compose up` brings the stack to healthy with all
-  13 tables and the `collection_values` view auto-created.
+- Docker image builds, and `docker compose up --wait` brings the stack to
+  healthy — in CI, on every push, against `.env.example`. There the app's own
+  healthcheck passes inside the Alpine image as uid 1001, `/api/health` and
+  `/signin` return 200, `/collections` redirects signed-out with 307, the demo
+  seed runs inside the container (19 printings, 48 cards, $62.17) and
+  `migrate --status` reports all 7 migrations applied by the initdb hook. Until
+  CI the image could not build at all: the runner stage copied a `public/`
+  directory this repo has never had.
 - HTTP, against the running stack: `/` 200, `/signin` 200, `/collections` 307
   when signed out and past the proxy when signed in, `/api/auth/providers` 200
   listing only `credentials` (magic link correctly absent without SMTP).
@@ -434,13 +501,21 @@ duplicate key, permanently locking that account out. Everything that writes
   did not slip through; a dry run created no tables. The initdb hook and the
   runner were then run against the same database and agreed on all six
   checksums, with the runner reporting the box up to date rather than changed.
-- The whole suite runs green against one Postgres 16: **496/496**, and it is
-  repeatable — three consecutive runs against the same database all pass, and
-  leave `scryfall_cards`, `card_price_history`, `scryfall_bulk_imports` and
-  `users` back at zero. Every file also passes alone on a fresh database. Getting
-  there took serializing the files and making `import.test.ts`,
-  `scryfall.test.ts` and `prices.test.ts` each clean up the mirror, price and
-  bulk-import rows that hang off no user and so cascade away with nothing.
+- The whole suite runs green against one Postgres 16: **496/496**, with the
+  files in parallel, and it is repeatable — consecutive runs against the same
+  server all pass, as do two whole suites started at once against it, and none
+  leaves an `nn_test_*` database behind. That used to take serializing the files
+  and every file remembering to delete the mirror, price and bulk-import rows
+  that hang off no user; three files were fixed for forgetting. A database per
+  file made both unnecessary. With the health check and upload-limit tests added
+  it is 510.
+- The health check, against `.next/standalone` and a migrated Postgres 16, with
+  the healthcheck's argv taken verbatim from `docker-compose.yml`: database up,
+  200 and exit 0; every Postgres process frozen with `SIGSTOP`, 503 and exit 1
+  in 2.1s, the route's timeout rather than the probe's; Postgres stopped, 503
+  and exit 1 in about 100ms; Postgres started again, 200 with no app restart.
+  The 503 body is `{"ok":false}` and nothing more, and the compiled proxy
+  matchers do not match `/api/health`.
 
 ## Next
 
@@ -529,11 +604,6 @@ history.
 - The rendered pages for browser import and price history have been verified by
   test and by build, not by eye against a running stack with real data. The auth
   and reset pages are the exception: those were driven over HTTP.
-- Only the `db` service has a healthcheck. `restart: unless-stopped` on the app
-  therefore restarts a crashed container but not a wedged one.
-- Nothing runs the test suite automatically. There is no CI.
-- The database tests share one database, must run serially, and each file has to
-  delete the rows it wrote. Three files have had to be fixed for forgetting.
-  Correctness there is the test author's job rather than a property of the
-  setup; a database per file, or a transaction rolled back per test, would make
-  it structural.
+- A wedged app is now **reported** — the `app` healthcheck marks it
+  `unhealthy` — but not restarted. Plain Docker does not act on health, and
+  `restart: unless-stopped` still only sees exits. See [Health](#health).

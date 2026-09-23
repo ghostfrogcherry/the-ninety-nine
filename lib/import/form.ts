@@ -17,8 +17,9 @@
  * ------------------------------------------------------------------ */
 
 /**
- * The ceiling on an import, whichever transport carries it. Roughly 40x the
- * first real batch (45 KB / 1457 lines).
+ * The ceiling on an import, whichever transport carries it — the HTTP route,
+ * or a browser <form> through the server action. Roughly 40x the first real
+ * batch (45 KB / 1457 lines).
  *
  * Defined here rather than in the route so the two front doors cannot drift:
  * `app/api/collections/[id]/import/route.ts` imports this, and a lib module is
@@ -27,21 +28,31 @@
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 
 /**
- * What a <form> post can actually deliver, which is less.
+ * The cap on a whole Server Action request body, which next.config.ts reads
+ * from here as `experimental.serverActions.bodySizeLimit`.
  *
- * Next caps a Server Action request body at 1 MB by default and rejects a
- * larger one with a 413 raised inside its own action handler — *before* the
- * action runs, so a 1.5 MB file would surface as an unhandled error page
- * rather than as the readable message in IMPORT_ERROR_TEXT. The cap therefore
- * sits under 1 MB, leaving room for the multipart boundaries and the RSC
- * action envelope that ride along with the file bytes.
+ * Next enforces that limit inside its own action handler, *before* the action
+ * runs, and a body over it surfaces as a 500 — app/error.tsx with JavaScript
+ * on, a bare "Internal Server Error" with it off — and there is no hook to
+ * turn it into anything a person can act on. Next's default is 1 MB, which is
+ * why browser uploads used to be capped at 960 KB while curl got the full
+ * MAX_IMPORT_BYTES.
  *
- * Raising this requires `experimental.serverActions.bodySizeLimit` in
- * next.config.ts to be raised to match; until then MAX_IMPORT_BYTES is
- * reachable only over curl. That is not much of a loss: 960 KB is still about
- * 21x the largest real export seen (45 KB / 1457 lines), i.e. ~30,000 lines.
+ * Twice the import ceiling, because the limit is on the whole encoded body,
+ * not the file. Multipart overhead is the small part of the headroom —
+ * boundaries, part headers, the action id and this form's other fields; Next's
+ * docs budget 10-20 KB for it. The large part is so that a file somewhat OVER
+ * the ceiling still reaches `readImportSource` and is refused with the
+ * sentence in IMPORT_ERROR_TEXT. Set equal to MAX_IMPORT_BYTES, a 2.1 MB
+ * export would get the error page for what is plainly a user mistake; at
+ * twice, only something ~130,000 lines long or not an export at all does.
+ *
+ * The limit is app-wide, not per action, and Next buffers the whole body
+ * before parsing it, so this is also what any one action post can pin in
+ * memory. 4 MB is nothing on the host this runs on; it is the reason the
+ * headroom is a factor of two and not "as big as a mistaken upload could be".
  */
-export const MAX_FORM_BYTES = 960 * 1024;
+export const MAX_ACTION_BODY_BYTES = 2 * MAX_IMPORT_BYTES;
 
 /* ------------------------------------------------------------------ *
  * Failures a user can actually cause
@@ -59,8 +70,8 @@ export type ImportErrorCode = (typeof IMPORT_ERRORS)[number];
 export const IMPORT_ERROR_TEXT: Record<ImportErrorCode, string> = {
   empty: "Nothing to import — choose a file or paste an export first.",
   too_large:
-    `That export is over ${Math.round(MAX_FORM_BYTES / 1024)} KB, which is more than a browser ` +
-    "upload can carry here. Split it, or use scripts/import-collection.mjs.",
+    `That export is over ${+(MAX_IMPORT_BYTES / (1024 * 1024)).toFixed(1)} MB, the most one ` +
+    "import takes. Split it, or use scripts/import-collection.mjs, which has no limit.",
 };
 
 export function parseImportError(value: unknown): ImportErrorCode | null {
@@ -185,7 +196,7 @@ export type ImportSource =
 export async function readImportSource(
   file: unknown,
   pasted: unknown,
-  limit: number = MAX_FORM_BYTES,
+  limit: number = MAX_IMPORT_BYTES,
 ): Promise<ImportSource> {
   const upload = isUpload(file) && file.size > 0 ? file : null;
 

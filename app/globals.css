@@ -130,6 +130,21 @@ button:hover { background: var(--bg4); box-shadow: var(--glow); }
 .topnav a:hover { color: var(--yellow); }
 .topnav a.on { color: var(--yellow); text-shadow: var(--glow); }
 .topnav .brand { color: var(--fg0); margin-right: auto; letter-spacing: 0.04em; }
+.topnav .who { color: var(--dim2); }
+/* Sign-out is a form, so that it is a POST; dressed as one more nav link. */
+.signout { display: inline; margin: 0; }
+.signout button {
+  background: none;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+  font: inherit;
+  color: var(--dim);
+}
+.signout button:hover { background: none; color: var(--yellow); }
+.home-nav { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: baseline; margin-top: 2.5rem; }
+.home-nav .who { color: var(--dim); }
+.home-nav .signout button { color: var(--aqua); }
 
 /* ---- tables ---------------------------------------------------------- */
 

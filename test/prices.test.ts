@@ -4,24 +4,8 @@
  *   npm test
  *
  * The pure tests always run. The database tests run only when
- * TEST_DATABASE_URL is set, e.g.
- *
- *   docker run -d --name nn-prices-test -p 55437:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   # the image runs a TEMPORARY server during init and then restarts, so
- *   # pg_isready can pass before the real server exists. Poll a real query:
- *   until docker exec nn-prices-test psql -U ninetynine -d ninetynine -c 'SELECT 1'; do sleep 1; done
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-prices-test psql -v ON_ERROR_STOP=1 -U ninetynine -d ninetynine < "$f"
- *   done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55437/ninetynine \
- *     node --experimental-strip-types --test test/prices.test.ts
- *
- * A DEDICATED variable, not DATABASE_URL: these tests insert placeholder rows
- * into `scryfall_cards` and `card_price_history` and must never be able to do
- * that to a real instance by inheriting the app's environment. Same rule as
- * test/import.test.ts.
+ * TEST_DATABASE_URL is set, in a throwaway database of this file's own —
+ * test/_db.ts has the setup, and why it is never DATABASE_URL.
  */
 
 import assert from "node:assert/strict";
@@ -30,6 +14,8 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 /**
  * Types come from an extensionless import (erased at runtime, and resolved fine
@@ -693,9 +679,8 @@ describe("query text", () => {
  * Against postgres
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("price history against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("price history against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
   let collectionId: number;
   let emptyCollectionId: number;
@@ -734,7 +719,8 @@ describe("price history against postgres", { skip: !DB_URL && "TEST_DATABASE_URL
   const round = (n: number) => Math.round(n * 100) / 100;
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("prices");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
 
     const mirror = JSON.parse(readFileSync(MIRROR_JSON, "utf8")) as Array<Record<string, never>>;
     for (const c of mirror as unknown as Array<{
@@ -813,24 +799,10 @@ describe("price history against postgres", { skip: !DB_URL && "TEST_DATABASE_URL
   });
 
   after(async () => {
-    // History is keyed on the card, not the collection, so it is not cleaned up
-    // by the cascade — remove exactly the rows this file wrote.
-    for (const [id, finish, on] of HISTORY) {
-      await pool.query(
-        `DELETE FROM card_price_history WHERE scryfall_id = $1 AND finish = $2 AND recorded_on = $3::date`,
-        [id, finish, on],
-      );
-    }
-    await pool.query("DELETE FROM users WHERE email = $1", [email]);
-
-    // The mirror rows this file seeds hang off no user either, so the cascade
-    // above does not reach them. Without this the file leaves a mirror behind
-    // that import.test.ts then resolves extra cards against on the next run.
-    const mirrorIds = (JSON.parse(readFileSync(MIRROR_JSON, "utf8")) as Array<{ id: string }>).map((c) => c.id);
-    await pool.query("DELETE FROM card_price_history WHERE scryfall_id = ANY($1::uuid[])", [mirrorIds]);
-    await pool.query("DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])", [mirrorIds]);
-
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes, including the history and
+    // mirror rows that hang off no user and so reach no cascade. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   it("values every snapshot, carrying the last known price forward", async () => {

@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { currentUserId, loadOwnedCollection, parseCollectionId } from "@/app/api/collections/access";
 import { pool } from "@/lib/db";
 import { Notice, Shell, usd } from "@/app/_ui";
+import { Account } from "@/app/_account";
 import {
   MOVERS_LIMIT,
   WINDOWS,
@@ -95,6 +96,7 @@ export default async function PricesPage({
 
   return (
     <Shell
+      account={<Account />}
       title={collection.name}
       actions={
         <Link href={`/collections/${id}`} style={{ fontSize: 12 }}>

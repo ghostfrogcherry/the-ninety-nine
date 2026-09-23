@@ -4,19 +4,8 @@
  *   npm test
  *
  * The pure tests always run. The database tests run only when
- * TEST_DATABASE_URL is set, e.g.
- *
- *   docker run -d --name nn-import-test -p 55432:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-import-test psql -v ON_ERROR_STOP=1 -U ninetynine -d ninetynine < "$f"
- *   done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55432/ninetynine npm test
- *
- * A DEDICATED variable, not DATABASE_URL: these tests insert throwaway users and
- * collections and must never be able to do that to a real instance by
- * inheriting the app's environment.
+ * TEST_DATABASE_URL is set, in a throwaway database of this file's own —
+ * test/_db.ts has the setup, and why it is never DATABASE_URL.
  *
  * The server actions themselves are not exercised here — they pull in
  * `next/cache` and `next/navigation`, which do not load outside a Next server.
@@ -28,6 +17,8 @@ import assert from "node:assert/strict";
 import { describe, it, after, before } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 /**
  * Types come from an extensionless import (erased at runtime, and resolved fine
@@ -45,7 +36,8 @@ const issuesSpecifier = "../lib/import/issues.ts";
 
 const {
   ERROR_PARAM, IMPORT_ERRORS, IMPORT_ERROR_TEXT, IMPORT_PARAM, IMPORT_URL_KEYS,
-  MAX_FORM_BYTES, MISSED_IN_URL, MISSED_PARAM, MORE_PARAM, SOURCE_PARAM,
+  MAX_ACTION_BODY_BYTES, MAX_IMPORT_BYTES, MISSED_IN_URL, MISSED_PARAM,
+  MORE_PARAM, SOURCE_PARAM,
   decodeImportSummary, encodeImportSummary, isUpload, issueCount,
   parseCheckbox, parseCollectionName, parseImportError, parseImportId,
   parseLanguage, parseOnConflict, readImportSource, truncateMissed,
@@ -206,7 +198,7 @@ describe("choosing the import source", () => {
     let read = false;
     const huge = {
       name: "huge.txt",
-      size: MAX_FORM_BYTES + 1,
+      size: MAX_IMPORT_BYTES + 1,
       text: async () => { read = true; return ""; },
     };
     const r = await readImportSource(huge, "");
@@ -217,13 +209,25 @@ describe("choosing the import source", () => {
   });
 
   it("measures a paste in bytes, not characters", async () => {
-    // 3-byte characters: a string comfortably under the limit by `.length` is
-    // over it once encoded, which is how an accented export sneaks past a naive
-    // check. 400 KB of them is 1.2 MB.
-    const wide = "é".repeat(MAX_FORM_BYTES);
-    assert.ok(wide.length <= MAX_FORM_BYTES);
+    // "é" is two bytes in UTF-8: a string exactly at the limit by `.length` is
+    // twice over it once encoded, which is how an accented export sneaks past a
+    // naive check.
+    const wide = "é".repeat(MAX_IMPORT_BYTES);
+    assert.ok(wide.length <= MAX_IMPORT_BYTES);
     const r = await readImportSource(null, wide);
     assert.equal(!r.ok && r.error, "too_large");
+  });
+
+  it("accepts a file at the ceiling, which the browser used to refuse", async () => {
+    // Browser uploads were capped at 960 KB until next.config.ts raised Next's
+    // Server Action body limit. readImportSource now defaults to the ceiling
+    // the HTTP route enforces, so a file one front door accepts the other must.
+    const r = await readImportSource({
+      name: "big.txt",
+      size: MAX_IMPORT_BYTES,
+      text: async () => "1 Sol Ring (C19) 193\n",
+    }, "");
+    assert.equal(r.ok, true);
   });
 
   it("recognises anything File-shaped and nothing else", () => {
@@ -231,6 +235,28 @@ describe("choosing the import source", () => {
     for (const bad of [null, undefined, "text", 5, {}, { size: 1 }, { text: () => "" }]) {
       assert.equal(isUpload(bad), false);
     }
+  });
+});
+
+describe("the Server Action body limit", () => {
+  it("leaves room for a file over the ceiling to reach the action", () => {
+    // Next refuses a body over its limit with a 500 before the action runs, so
+    // the limit must clear MAX_IMPORT_BYTES by enough that an export somewhat
+    // over it is still refused by readImportSource, in words.
+    assert.ok(MAX_ACTION_BODY_BYTES >= MAX_IMPORT_BYTES + 512 * 1024);
+  });
+
+  it("is what next.config.ts actually hands Next", async () => {
+    // The constant is only half the fix. Replacing the import in next.config.ts
+    // with a literal that later drifts, or dropping the key, would silently
+    // bring back Next's 1 MB default and a 500 for any upload over it. The
+    // config imports only the `next` types (erased) and lib/import/form.ts, so
+    // it loads here without a Next server.
+    const configSpecifier = "../next.config.ts";
+    const { default: config } = (await import(configSpecifier)) as {
+      default: { experimental?: { serverActions?: { bodySizeLimit?: unknown } } };
+    };
+    assert.equal(config.experimental?.serverActions?.bodySizeLimit, MAX_ACTION_BODY_BYTES);
   });
 });
 
@@ -307,9 +333,8 @@ describe("unresolved lines carried in a dry-run URL", () => {
  * Database
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("import issues read back", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("import issues read back", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
   let userId: number;
   let mine: number;
@@ -319,7 +344,8 @@ describe("import issues read back", { skip: !DB_URL && "TEST_DATABASE_URL not se
   const email = `import-form-test-${process.pid}-${Date.now()}@ninetynine.invalid`;
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("import-form");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
 
     const user = await pool.query(
       "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
@@ -356,10 +382,9 @@ describe("import issues read back", { skip: !DB_URL && "TEST_DATABASE_URL not se
   });
 
   after(async () => {
-    if (!pool) return;
-    // Cascades to collections -> imports -> issues.
-    await pool.query("DELETE FROM users WHERE id = $1", [userId]);
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   it("returns this import's issues in line order, nulls last", async () => {

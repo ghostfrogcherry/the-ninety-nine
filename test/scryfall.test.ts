@@ -19,15 +19,9 @@
  *   afr A-87 A-Acererak the Archlich            every price null
  *   40k 319  Abaddon the Despoiler              etched-only price
  *
- * The database tests need a real Postgres and are skipped without one:
- *
- *   docker run -d --name nn-scryfall-test -e POSTGRES_PASSWORD=t \
- *     -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine -p 55433:5432 \
- *     postgres:17-alpine
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-scryfall-test psql -v ON_ERROR_STOP=1 \
- *       -U ninetynine -d ninetynine < "$f"; done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55433/ninetynine npm test
+ * The database tests need a real Postgres and are skipped without one. With
+ * TEST_DATABASE_URL set they run in a throwaway database of this file's own —
+ * test/_db.ts has the setup, and why it is never DATABASE_URL.
  */
 
 import assert from "node:assert/strict";
@@ -45,6 +39,8 @@ import { bulkFileName, fetchBulkEntry } from "../lib/scryfall/http.mjs";
 import { runRefresh } from "../lib/scryfall/refresh.mjs";
 import { buildCardUpsert, FINISH_PRICE_KEYS, MAX_BATCH_SIZE } from "../lib/scryfall/sql.mjs";
 import { parseJsonArray, parseJsonLines, streamCards } from "../lib/scryfall/stream.mjs";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TESTDATA = path.join(HERE, "..", "lib", "scryfall", "testdata");
@@ -348,9 +344,8 @@ async function startFakeScryfall(): Promise<FakeScryfall> {
 // Database
 // ---------------------------------------------------------------------------
 
-const DATABASE_URL = process.env.TEST_DATABASE_URL;
-
-describe("refresh against postgres", { skip: DATABASE_URL ? false : "TEST_DATABASE_URL not set" }, () => {
+describe("refresh against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: any;
   let server: FakeScryfall;
   let dataDir: string;
@@ -363,29 +358,23 @@ describe("refresh against postgres", { skip: DATABASE_URL ? false : "TEST_DATABA
 
   before(async () => {
     const pg = (await import("pg")).default;
-    pool = new pg.Pool({ connectionString: DATABASE_URL, max: 4 });
-    await pool.query("TRUNCATE scryfall_cards, card_price_history, scryfall_bulk_imports");
+    // A fresh database is also what makes this file's exact mirror counts
+    // mean anything: the refresh starts from an empty scryfall_cards without
+    // this file having to TRUNCATE one that other files are using.
+    db = await createTestDatabase("scryfall");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
     server = await startFakeScryfall();
     dataDir = await mkdtemp(path.join(tmpdir(), "ninetynine-scryfall-"));
     fixture = await loadFixtureCards();
   });
 
   after(async () => {
-    // These tests run a REAL refresh against the shared database: it writes
-    // scryfall_cards, scryfall_bulk_imports and price history, none of which
-    // hangs off a user and so none of which any cascade removes. Left behind,
-    // they are the next file's starting conditions — and this file asserts
-    // exact mirror counts, so a second run against the same database fails on
-    // its own residue. Scoped to the fixture's ids rather than a TRUNCATE,
-    // because a real instance may be pointed at by mistake.
-    if (pool) {
-      const ids = fixture.map((c) => c.id as string);
-      await pool.query("DELETE FROM card_price_history WHERE scryfall_id = ANY($1::uuid[])", [ids]);
-      await pool.query("DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])", [ids]);
-      await pool.query("DELETE FROM scryfall_bulk_imports");
-    }
+    // No row-by-row cleanup: the whole database goes, and with it everything
+    // the refresh wrote to scryfall_cards, scryfall_bulk_imports and price
+    // history — none of which hangs off a user. See test/_db.ts.
     await server?.close();
     await pool?.end();
+    await db?.drop();
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 

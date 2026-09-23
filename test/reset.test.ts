@@ -6,24 +6,11 @@
  *
  * The pure tests always run — including the SMTP ones, which talk to a fake
  * server this file starts on loopback, so no mail host is needed. The database
- * tests run only when TEST_DATABASE_URL is set, e.g.
- *
- *   docker run -d --name nn-reset-test -p 55438:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   until docker exec nn-reset-test psql -U ninetynine -d ninetynine -c 'SELECT 1'; do sleep 1; done
- *   DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55438/ninetynine node scripts/migrate.mjs
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55438/ninetynine \
- *     node --experimental-strip-types --test test/reset.test.ts
- *
- * A DEDICATED variable, not DATABASE_URL: these tests write users, reset tokens
- * and verification tokens, and must never be able to do that to a real instance
- * by inheriting the app's environment. Same rule as test/deck.test.ts.
- *
- * Every row written here is removed again, scoped to the ids this file
- * inserted. `verification_token` gets its own DELETE because it hangs off no
- * user — nothing cascades to it, and a magic-link row left behind outlives the
- * user it was for.
+ * tests run only when TEST_DATABASE_URL is set, in a throwaway database of this
+ * file's own — test/_db.ts has the setup, and why it is never DATABASE_URL.
+ * That is also what cleans up `verification_token`, which hangs off no user and
+ * so reaches no cascade: a magic-link row used to outlive the user it was for
+ * unless this file remembered to delete it by hand.
  *
  * The split import style is the one test/auth.test.ts explains: types from the
  * extensionless path (erased before Node sees it), values from a dynamic import
@@ -44,6 +31,8 @@ import { after, before, describe, it } from "node:test";
 import bcrypt from "bcryptjs";
 import pg from "pg";
 import PostgresAdapter from "@auth/pg-adapter";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 import type * as MailModule from "../lib/auth/mail";
 import type * as MessagesModule from "../lib/auth/messages";
@@ -478,14 +467,9 @@ describe("SMTP delivery", () => {
  * Against Postgres
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("password reset against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("password reset against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
-  /** Every id this file inserts, so teardown can be scoped rather than blunt. */
-  const userIds: number[] = [];
-  /** verification_token rows hang off no user; nothing cascades to them. */
-  const identifiers: string[] = [];
   const stamp = `${process.pid}-${Date.now()}`;
 
   const PASSWORD = "the-old-password";
@@ -499,7 +483,6 @@ describe("password reset against postgres", { skip: !DB_URL && "TEST_DATABASE_UR
       `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id`,
       [`reset test ${label}`, email, withPassword ? bcrypt.hashSync(PASSWORD, 10) : null],
     );
-    userIds.push(rows[0].id);
     return { id: rows[0].id as number, email };
   }
 
@@ -517,16 +500,14 @@ describe("password reset against postgres", { skip: !DB_URL && "TEST_DATABASE_UR
   }
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("reset");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
   });
 
   after(async () => {
-    if (!pool) return;
-    // Cascades to password_reset_tokens (0007 sets ON DELETE CASCADE).
-    await pool.query("DELETE FROM users WHERE id = ANY($1::int[])", [userIds]);
-    // These do NOT cascade — verification_token references nothing.
-    await pool.query("DELETE FROM verification_token WHERE identifier = ANY($1::text[])", [identifiers]);
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   /* ---------------------------------------------------------------- *
@@ -718,7 +699,6 @@ describe("password reset against postgres", { skip: !DB_URL && "TEST_DATABASE_UR
   describe("magic link, through @auth/pg-adapter itself", () => {
     it("round-trips a verification token, once", async () => {
       const user = await newUser("magic-flow", false);
-      identifiers.push(user.email);
       const adapter = PostgresAdapter(pool);
 
       const token = newResetToken(); // any opaque string; shape is the adapter's business
@@ -755,11 +735,7 @@ describe("password reset against postgres", { skip: !DB_URL && "TEST_DATABASE_UR
       // permanently unfindable by the adapter, and unfixable by re-registering
       // because LOWER(email) is already taken.
       const mixed = `Reset-Mixed-${stamp}@Ninetynine.Invalid`;
-      const { rows } = await pool.query(
-        `INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id`,
-        ["mixed case", mixed],
-      );
-      userIds.push(rows[0].id);
+      await pool.query(`INSERT INTO users (name, email) VALUES ($1, $2)`, ["mixed case", mixed]);
       assert.equal(await adapter.getUserByEmail!(mixed.toLowerCase()), null, "this is the trap");
       await assert.rejects(
         () => pool.query(`INSERT INTO users (name, email) VALUES ($1, $2)`, ["dup", mixed.toLowerCase()]),
@@ -775,7 +751,6 @@ describe("password reset against postgres", { skip: !DB_URL && "TEST_DATABASE_UR
      */
     it("leaves magic-link sign-in working after a reset sets a password", async () => {
       const user = await newUser("magic-then-password", false);
-      identifiers.push(user.email);
       const adapter = PostgresAdapter(pool);
 
       const before = await pool.query(

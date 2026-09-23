@@ -1,0 +1,218 @@
+# Continuous integration.
+#
+# Two jobs, independent so a Docker failure never hides a test failure or the
+# other way round:
+#
+#   check  typecheck, the full suite against a real Postgres, build
+#   image  the Dockerfile and every compose file / profile combination
+#
+# Nothing is pushed or published. This workflow only reads the repository.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# The workflow runs code from pull requests, so the token it hands that code
+# can read the repository and do nothing else.
+permissions:
+  contents: read
+
+# A second push to a branch makes the first run's result worthless; cancel it
+# rather than queue behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # An explicit `shell: bash` is what turns on `-o pipefail` in Actions. The
+    # implicit default is `bash -e` WITHOUT pipefail, so `npm test | tee` below
+    # would report tee's exit status — always 0 — and a failing suite would
+    # show green.
+    shell: bash
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    # A database test that leaks a pool keeps its process alive forever. Fail
+    # in minutes, not after the six-hour default.
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # The same image docker-compose.yml deploys, so the suite runs against
+        # the server version and build the app actually meets.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ninetynine
+          POSTGRES_USER: ninetynine
+          POSTGRES_PASSWORD: t
+        ports:
+          - 5432:5432
+        # Probe over TCP, not the socket. The image runs a temporary server
+        # during init that listens only on the unix socket, then restarts; a
+        # plain `pg_isready` reports ready against that temporary server and
+        # the first test would race its shutdown. The real server is the only
+        # one that ever binds TCP.
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U ninetynine -d ninetynine"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Node 22 because the Dockerfile builds on node:22-alpine: CI passing on
+      # a newer Node than the image ships proves nothing about the image.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci`, not `npm install`: it fails if package-lock.json and
+      # package.json disagree instead of quietly rewriting the lock, and it
+      # installs exactly the versions the Dockerfile's `npm ci` will.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # The database tests skip cleanly when TEST_DATABASE_URL is unset, by
+      # design. So a typo in the variable name turns this step into the pure
+      # tests passing and the database half silently not running at all. The
+      # grep fails the build on any skip, and prints which.
+      #
+      # It looks for TAP's `# SKIP` directive, NOT the `# skipped N` summary:
+      # the database tests skip as whole `describe` blocks, and Node counts a
+      # skipped suite nowhere in that summary — a run with every database
+      # suite skipped still reports `# skipped 0`. TAP is what Node prints when
+      # stdout is not a terminal, which under `tee` it never is.
+      #
+      # No migration step: each database test file creates and migrates its
+      # own throwaway database through the real runner (test/_db.ts), so the
+      # URL only has to name a database that exists. POSTGRES_USER is a
+      # superuser, which covers the CREATEDB that needs.
+      - name: Test
+        run: |
+          npm test | tee "$RUNNER_TEMP/test.log"
+          if grep -E '^ *ok [0-9]+ - .* # SKIP' "$RUNNER_TEMP/test.log"; then
+            echo "::error::tests were skipped — is TEST_DATABASE_URL reaching the suite?"
+            exit 1
+          fi
+        env:
+          TEST_DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
+
+      # Isolation is only structural while every file drops what it created. A
+      # file that forgets its `after` hook still passes — the leak shows up
+      # nowhere but here, as databases piling up on a developer's server.
+      - name: No test databases left behind
+        run: |
+          left=$(psql "$URL" -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'nn\_test\_%'")
+          if [ -n "$left" ]; then
+            echo "::error::test databases were not dropped: $left"
+            exit 1
+          fi
+        env:
+          URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
+
+      # `--webpack` is inside the npm script; call the script, never `next
+      # build` directly, or Turbopack builds with no .next/standalone and the
+      # image that copies it cannot start.
+      #
+      # The build must stay warning-free, and `next build` exits 0 with
+      # "⚠ Compiled with warnings", so the exit status alone enforces nothing.
+      # Every Next warning carries the ⚠ prefix, but so does one notice that
+      # has nothing to do with the code: "No build cache found", printed on
+      # every CI run without a restored .next/cache. That one line is excluded
+      # by its text; any other ⚠ fails the step and is printed. stderr is
+      # folded in because that is where Next writes its warnings.
+      - name: Build
+        run: |
+          npm run build 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if grep '⚠' "$RUNNER_TEMP/build.log" | grep -v 'No build cache found'; then
+            echo "::error::next build printed warnings; it must stay warning-free"
+            exit 1
+          fi
+
+  image:
+    name: Docker image and compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # The only place the Dockerfile is exercised. `next build` passing in the
+      # other job does not prove the image builds: the stages copy specific
+      # paths out of the build, and a missing one fails only here.
+      #
+      # Tagged with the name docker-compose.yml gives the app image, so the
+      # smoke test below starts the image this step built instead of building
+      # a second one.
+      - name: Build image
+        run: docker build --tag ninetynine-app:local .
+
+      # Every combination a user is told to run. Each profile adds services,
+      # and a profile's services are not validated unless it is enabled.
+      #
+      # Against .env.example rather than invented values: the compose file
+      # refuses to start without POSTGRES_PASSWORD and AUTH_SECRET, so this
+      # also catches a newly required variable that .env.example — the file a
+      # first install copies — does not supply.
+      - name: Validate compose files
+        run: |
+          set -x
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example --profile migrate --profile backup --profile refresh config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml config --quiet
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml --profile migrate --profile backup --profile refresh config --quiet
+
+      # The first install, as the README tells a user to do it: `up`, then the
+      # demo seed. Until this step existed `docker compose up` had never been
+      # run anywhere — the image could not even build — so "the stack comes up
+      # healthy" was a claim, not a result.
+      #
+      # `--wait` returns only once every service's healthcheck passes, and
+      # fails if one goes unhealthy, so this is also the only real test of the
+      # app's healthcheck command inside the Alpine image, as its non-root user.
+      # Against .env.example for the same reason as above; its placeholder
+      # secrets are fine on a runner that is thrown away.
+      - name: Smoke test the stack
+        run: |
+          compose() { docker compose --env-file .env.example "$@"; }
+          compose up -d --wait --wait-timeout 180
+
+          expect() {
+            local got
+            got=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3010$2")
+            if [ "$got" != "$1" ]; then
+              echo "::error::GET $2 returned $got, expected $1"
+              exit 1
+            fi
+            echo "GET $2 -> $got"
+          }
+          expect 200 /api/health
+          expect 200 /signin
+          # The proxy's allow-list is the auth boundary: signed out, a guarded
+          # page must redirect rather than render.
+          expect 307 /collections
+
+          # The one-shots share the app image but not its entrypoint; each is a
+          # separate chance for a script to be missing from the image or to
+          # import something only the builder stage had.
+          compose exec -T app node scripts/seed-demo.mjs ci@example.com
+          compose --profile migrate run --rm migrate --status
+
+      - name: Stack logs
+        if: failure()
+        run: docker compose --env-file .env.example logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose --env-file .env.example down -v
