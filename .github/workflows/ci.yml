@@ -67,11 +67,11 @@ jobs:
           --health-retries 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Node 22 because the Dockerfile builds on node:22-alpine: CI passing on
       # a newer Node than the image ships proves nothing about the image.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -146,7 +146,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The only place the Dockerfile is exercised. `next build` passing in the
       # other job does not prove the image builds: the stages copy specific

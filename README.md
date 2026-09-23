@@ -30,7 +30,7 @@ more.
 | Demo seed (`scripts/seed-demo.mjs`) | Done — a clickable install without a 78 MB download |
 | Health check (`/api/health`, `lib/health/`) | Done — compose healthcheck on the app, Caddy waits for it |
 
-344 tests pass without a database and 507 with one; `tsc --noEmit` is clean and
+347 tests pass without a database and 510 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
 all three to that on every push and pull request: the suite runs against
 Postgres 17 and fails if any database test skips or leaves its database behind,
@@ -91,9 +91,13 @@ peer-accepts.
 
 ```sh
 cp .env.example .env
-# set POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32)
-docker compose up -d
+# set POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32), and AUTH_URL
+# to the address you will browse to — http://localhost:3010 on your own machine
+docker compose up -d --wait
 ```
+
+`--wait` returns once the app's healthcheck passes, typically within half a
+minute of the database coming up; `docker compose ps` shows `healthy`.
 
 The app listens on **3010**, chosen to miss the ports a typical arr stack
 already uses (3000, 5055, 6767, 7878, 8080, 8096, 8686, 8989, 9696). Postgres is
@@ -439,8 +443,14 @@ duplicate key, permanently locking that account out. Everything that writes
 - All migrations apply clean to `postgres:17-alpine`.
 - Constraints: foil + non-foil of one printing both store; a true duplicate is
   rejected; `quantity = 0` is rejected; email uniqueness is case-insensitive.
-- Docker image builds; `docker compose up` brings the stack to healthy with all
-  13 tables and the `collection_values` view auto-created.
+- Docker image builds, and `docker compose up --wait` brings the stack to
+  healthy — in CI, on every push, against `.env.example`. There the app's own
+  healthcheck passes inside the Alpine image as uid 1001, `/api/health` and
+  `/signin` return 200, `/collections` redirects signed-out with 307, the demo
+  seed runs inside the container (19 printings, 48 cards, $62.17) and
+  `migrate --status` reports all 7 migrations applied by the initdb hook. Until
+  CI the image could not build at all: the runner stage copied a `public/`
+  directory this repo has never had.
 - HTTP, against the running stack: `/` 200, `/signin` 200, `/collections` 307
   when signed out and past the proxy when signed in, `/api/auth/providers` 200
   listing only `credentials` (magic link correctly absent without SMTP).
@@ -496,7 +506,8 @@ duplicate key, permanently locking that account out. Everything that writes
   leaves an `nn_test_*` database behind. That used to take serializing the files
   and every file remembering to delete the mirror, price and bulk-import rows
   that hang off no user; three files were fixed for forgetting. A database per
-  file made both unnecessary. With the health check's tests added it is 507.
+  file made both unnecessary. With the health check and upload-limit tests added
+  it is 510.
 - The health check, against `.next/standalone` and a migrated Postgres 16, with
   the healthcheck's argv taken verbatim from `docker-compose.yml`: database up,
   200 and exit 0; every Postgres process frozen with `SIGSTOP`, 503 and exit 1
@@ -595,6 +606,3 @@ history.
 - A wedged app is now **reported** — the `app` healthcheck marks it
   `unhealthy` — but not restarted. Plain Docker does not act on health, and
   `restart: unless-stopped` still only sees exits. See [Health](#health).
-- The healthcheck itself has been run against the standalone server, not inside
-  a container: there has been no Docker daemon to run `docker compose up` with
-  it.
