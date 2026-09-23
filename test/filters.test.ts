@@ -4,23 +4,8 @@
  *   npm test
  *
  * The pure tests always run. The database tests run only when
- * TEST_DATABASE_URL is set, e.g.
- *
- *   docker run -d --name nn-filters-test -p 55434:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   # the image runs a throwaway server during init and then restarts, so
- *   # pg_isready can pass before the real one is listening. Poll the PUBLISHED
- *   # port — the init-phase server never binds it.
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-filters-test psql -v ON_ERROR_STOP=1 -U ninetynine -d ninetynine < "$f"
- *   done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55434/ninetynine \
- *     node --experimental-strip-types --test test/filters.test.ts
- *
- * A DEDICATED variable, not DATABASE_URL: these tests insert placeholder rows
- * into `scryfall_cards` and must never be able to do that to a real instance by
- * inheriting the app's environment. Same rule as test/import.test.ts.
+ * TEST_DATABASE_URL is set, in a throwaway database of this file's own —
+ * test/_db.ts has the setup, and why it is never DATABASE_URL.
  */
 
 import assert from "node:assert/strict";
@@ -29,6 +14,8 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 /**
  * Types come from an extensionless import (erased at runtime, and resolved fine
@@ -790,9 +777,8 @@ describe("PAGE_SIZES", () => {
  * Database — the SQL actually runs, and returns the right rows
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("filters against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("filters against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
   let userId: number;
   /** The fixture exactly: 19 rows / 48 cards / 3 foils / 17 ids. */
@@ -831,7 +817,8 @@ describe("filters against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not s
   }
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("filters");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
 
     // The mirror fixture, loaded as-is. `cmc` is absent from the fixture and so
     // stays NULL — see the cmc test below, which asserts what that means rather
@@ -900,14 +887,9 @@ describe("filters against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not s
   });
 
   after(async () => {
-    if (!pool) return;
-    // Cascades to collections -> collection_cards.
-    await pool.query("DELETE FROM users WHERE id = $1", [userId]);
-    await pool.query(
-      "DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])",
-      [mirrorCards.map((c) => c.id)],
-    );
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   it("loaded the fixture at its known totals", async () => {

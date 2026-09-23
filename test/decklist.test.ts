@@ -4,19 +4,8 @@
  *   npm test
  *
  * Pure tests always run. The database tests run only when TEST_DATABASE_URL is
- * set, e.g.
- *
- *   docker run -d --name nn-decklist-test -p 55437:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   # NOTE: the postgres image runs a temporary server during init and then
- *   # restarts, so `pg_isready` (and `docker exec psql`) can succeed before the
- *   # real server is listening and your migrations will silently do nothing.
- *   # Poll the PUBLISHED TCP PORT, which the init server never binds.
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-decklist-test psql -v ON_ERROR_STOP=1 -U ninetynine -d ninetynine < "$f"
- *   done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55437/ninetynine npm test
+ * set, in a throwaway database of this file's own — test/_db.ts has the setup,
+ * and why it is never DATABASE_URL.
  */
 
 import assert from "node:assert/strict";
@@ -25,6 +14,8 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 // Types extensionless (erased before Node sees them), values via a variable
 // specifier Node can resolve with type stripping. Same idiom as import.test.ts.
@@ -129,9 +120,8 @@ describe("parseDeckList", () => {
  * Database
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("decklist resolution against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("decklist resolution against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
   let userId: number;
   let otherUserId: number;
@@ -141,7 +131,8 @@ describe("decklist resolution against postgres", { skip: !DB_URL && "TEST_DATABA
     (await pool.query(text, params)).rows as T[];
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("decklist");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
 
     for (const c of mirror) {
       await q(
@@ -169,10 +160,9 @@ describe("decklist resolution against postgres", { skip: !DB_URL && "TEST_DATABA
   });
 
   after(async () => {
-    if (!pool) return;
-    await q("DELETE FROM users WHERE email IN ('dl@example.invalid','other@example.invalid')");
-    await q("DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])", [mirror.map((c) => c.id)]);
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   const line = (over: Partial<DeckListLine> = {}): DeckListLine => ({
