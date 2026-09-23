@@ -28,8 +28,9 @@ more.
 | Migration runner (`lib/migrate/`, `scripts/migrate.mjs`) | Done — checksummed ledger, transactional, adopts an existing database |
 | Backup and restore (`scripts/backup.sh`, `scripts/restore.sh`) | Done — every dump is restored and row-checked before it is kept |
 | Demo seed (`scripts/seed-demo.mjs`) | Done — a clickable install without a 78 MB download |
+| Health check (`/api/health`, `lib/health/`) | Done — compose healthcheck on the app, Caddy waits for it |
 
-336 tests pass without a database and 496 with one; `tsc --noEmit` is clean and
+344 tests pass without a database and 507 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free.
 
 The suite runs its files **serially** (`--test-concurrency=1` in the `test`
@@ -355,6 +356,49 @@ a corrupted byte fails `pg_restore --exit-on-error` and is refused. Retention
 pruned 3 of 5 dumps while leaving an unrelated file and a hand-renamed dump
 untouched.
 
+## Health
+
+`GET /api/health` answers `200 {"ok":true}` when the app can run `SELECT 1`
+through its own connection pool within two seconds, and `503 {"ok":false}` when
+it cannot. The `app` service's compose healthcheck polls it every 30 seconds, so
+`docker compose ps` shows `healthy` or `unhealthy` rather than just `Up`:
+
+```sh
+docker compose ps app
+docker inspect --format '{{json .State.Health}}' ninetynine-app
+```
+
+The check goes through the pool on purpose. The ways this app goes wrong
+without exiting — every pooled connection stuck, an event loop pinned, the
+database gone from under a server that is still listening — all still accept
+TCP, so a check that only asked "is the port open" would pass every one of them.
+
+The endpoint is unauthenticated, because Docker's probe has no session. It is
+outside the `proxy.ts` matcher rather than exempted from it, so the auth
+boundary did not move. For the same reason the body is a boolean and nothing
+else: why a check failed goes to the app's log as
+`health: database check failed (timeout|error)`, never into the response.
+
+The probe is `node -e` with `fetch`, because the runtime image has no curl or
+wget. It lives in `docker-compose.yml` and deliberately **not** in the
+Dockerfile: the same image runs the `migrate` and `scryfall-refresh` one-shots,
+which never start a server and would all be marked unhealthy.
+
+With the Caddy override, Caddy waits for the app to be **healthy**, not merely
+started, so it does not come up serving 502s in front of an app that is still
+booting or has no database.
+
+**What it does not do: restart anything.** Plain Docker records a container as
+unhealthy and leaves it running; only Swarm acts on health. `restart:
+unless-stopped` still restarts on exit alone. Automatic recovery from a wedged
+app needs something that watches health status and restarts on it, such as an
+autoheal container with access to the Docker socket, which this stack does not
+ship — handing a container the Docker socket is root on the host.
+
+Because the check depends on the database, a Postgres outage marks the app
+unhealthy too. That is accurate — every page needs the database — but it means
+`unhealthy` on the app is a reason to look at `db` first.
+
 ## Schema notes
 
 `collection_cards.scryfall_id` and `deck_cards.scryfall_id` are deliberately
@@ -441,6 +485,14 @@ duplicate key, permanently locking that account out. Everything that writes
   there took serializing the files and making `import.test.ts`,
   `scryfall.test.ts` and `prices.test.ts` each clean up the mirror, price and
   bulk-import rows that hang off no user and so cascade away with nothing.
+  With the health check's tests added it is 507/507, twice in a row.
+- The health check, against `.next/standalone` and a migrated Postgres 16, with
+  the healthcheck's argv taken verbatim from `docker-compose.yml`: database up,
+  200 and exit 0; every Postgres process frozen with `SIGSTOP`, 503 and exit 1
+  in 2.1s, the route's timeout rather than the probe's; Postgres stopped, 503
+  and exit 1 in about 100ms; Postgres started again, 200 with no app restart.
+  The 503 body is `{"ok":false}` and nothing more, and the compiled proxy
+  matchers do not match `/api/health`.
 
 ## Next
 
@@ -529,8 +581,12 @@ history.
 - The rendered pages for browser import and price history have been verified by
   test and by build, not by eye against a running stack with real data. The auth
   and reset pages are the exception: those were driven over HTTP.
-- Only the `db` service has a healthcheck. `restart: unless-stopped` on the app
-  therefore restarts a crashed container but not a wedged one.
+- A wedged app is now **reported** — the `app` healthcheck marks it
+  `unhealthy` — but not restarted. Plain Docker does not act on health, and
+  `restart: unless-stopped` still only sees exits. See [Health](#health).
+- The healthcheck itself has been run against the standalone server, not inside
+  a container: there has been no Docker daemon to run `docker compose up` with
+  it.
 - Nothing runs the test suite automatically. There is no CI.
 - The database tests share one database, must run serially, and each file has to
   delete the rows it wrote. Three files have had to be fixed for forgetting.

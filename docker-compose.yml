@@ -81,6 +81,42 @@ services:
       - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3010}:3000"
     networks:
       - ninetynine
+    # Polls GET /api/health, which runs `SELECT 1` through the app's own pool
+    # and answers 503 if that takes over 2s. A container whose process is alive
+    # but serving nothing — pool exhausted, event loop pinned, database gone —
+    # shows as `unhealthy` in `docker compose ps` instead of `Up`.
+    #
+    # `node -e`, because the runtime image is node:22-alpine with neither curl
+    # nor wget; Node 22's global fetch is already there. 127.0.0.1, not
+    # localhost: that can resolve to ::1 on Alpine, while the server binds
+    # 0.0.0.0 (HOSTNAME in the Dockerfile) and so answers on IPv4 only. 3000 is
+    # the in-container PORT, not APP_PORT. No `$` anywhere in the string, so
+    # compose has nothing to interpolate.
+    #
+    # Defined here and NOT as a Dockerfile HEALTHCHECK: the same image runs the
+    # migrate and scryfall-refresh one-shots, which never start the server, and
+    # an image-level check would mark every one of them unhealthy.
+    #
+    # Plain Docker does not restart a container for being unhealthy — only
+    # Swarm does. `restart: unless-stopped` still acts on exit alone. What this
+    # buys is visibility, and Caddy (docker-compose.proxy.yml) waiting for a
+    # healthy app rather than a started one.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 30s
+      # Above the fetch's own 4s abort, which is above the route's 2s database
+      # budget, so each layer gives up before the one outside it kills it and
+      # a slow database reads as a 503 rather than a hung probe.
+      timeout: 5s
+      retries: 3
+      # Boot is a second or two — migrations are not run on start — but a
+      # first boot on a small box is slower, and the db has only just passed
+      # pg_isready. Failures inside this window do not count.
+      start_period: 30s
 
   # Weekly Scryfall bulk refresh. Runs the same image as the app, but as a
   # one-shot command instead of the server. `restart: no` so a failed refresh

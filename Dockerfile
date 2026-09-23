@@ -63,4 +63,8 @@ RUN mkdir -p /data/scryfall && chown -R nextjs:nodejs /data
 
 USER nextjs
 EXPOSE 3000
+# No HEALTHCHECK here on purpose. This image also runs the migrate and
+# scryfall-refresh one-shots, which never start the server, so an image-level
+# check would mark each of them unhealthy. The app's check lives on the `app`
+# service in docker-compose.yml, and only there.
 CMD ["node", "server.js"]
