@@ -371,6 +371,19 @@ describe("refresh against postgres", { skip: DATABASE_URL ? false : "TEST_DATABA
   });
 
   after(async () => {
+    // These tests run a REAL refresh against the shared database: it writes
+    // scryfall_cards, scryfall_bulk_imports and price history, none of which
+    // hangs off a user and so none of which any cascade removes. Left behind,
+    // they are the next file's starting conditions — and this file asserts
+    // exact mirror counts, so a second run against the same database fails on
+    // its own residue. Scoped to the fixture's ids rather than a TRUNCATE,
+    // because a real instance may be pointed at by mistake.
+    if (pool) {
+      const ids = fixture.map((c) => c.id as string);
+      await pool.query("DELETE FROM card_price_history WHERE scryfall_id = ANY($1::uuid[])", [ids]);
+      await pool.query("DELETE FROM scryfall_cards WHERE id = ANY($1::uuid[])", [ids]);
+      await pool.query("DELETE FROM scryfall_bulk_imports");
+    }
     await server?.close();
     await pool?.end();
     if (dataDir) await rm(dataDir, { recursive: true, force: true });

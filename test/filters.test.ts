@@ -1286,11 +1286,22 @@ describe("filters against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not s
       [collectionId],
     );
     assert.equal(survived.rows[0].n, TRUTH.lines);
+    // Named, not counted. The injection strings above each try to drop a
+    // specific table, so checking for those tables by name is what this is
+    // actually asserting — and a bare count breaks every time the schema
+    // legitimately gains one, which says nothing about injection.
+    const targeted = ["collection_cards", "users", "decks"];
     const tables = await pool.query(
-      `SELECT count(*)::int AS n FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+          AND table_name = ANY($1::text[])`,
+      [targeted],
     );
-    assert.equal(tables.rows[0].n, 13, "a table went missing");
+    assert.deepEqual(
+      tables.rows.map((r: { table_name: string }) => r.table_name).sort(),
+      [...targeted].sort(),
+      "a table the query string tried to drop went missing",
+    );
   });
 
   it("a q that is entirely SQL metacharacters is matched literally", async () => {

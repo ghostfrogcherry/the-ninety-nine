@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { currentUserId } from "@/app/api/collections/access";
 import { pool, query } from "@/lib/db";
@@ -41,11 +41,17 @@ async function ownedDeckOr404(
 ): Promise<{ userId: number; deckId: number; deck: DeckRow }> {
   const userId = await currentUserId();
   if (!userId) redirect("/signin");
-  if (deckId === null) throw new Error("invalid deck id");
+  // `notFound()`, not a thrown Error, and the same call the page makes for the
+  // same condition. A stale tab posting to a deck that has since been deleted
+  // is an ordinary thing to do, and it used to land on the generic error
+  // screen while merely *viewing* that deck gave a clean 404 — one rule
+  // presented two ways, the uglier one reserved for the person who had the
+  // deck open longest. Both paths render app/not-found.tsx now.
+  if (deckId === null) notFound();
   const deck = await loadOwnedDeck(pool, deckId, userId);
   // Someone else's deck and a nonexistent deck are indistinguishable here on
   // purpose — otherwise this confirms which deck ids exist.
-  if (!deck) throw new Error("deck not found");
+  if (!deck) notFound();
   return { userId, deckId, deck };
 }
 

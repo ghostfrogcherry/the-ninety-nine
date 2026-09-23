@@ -1,0 +1,18 @@
+# Normalise text to LF in every working tree, whatever the OS.
+#
+# Everything here that executes does so inside Linux containers. A Windows
+# checkout with core.autocrlf=true would otherwise write CRLF, and then:
+#
+#   - the shell scripts die in the container on the first line ending in \r
+#     (`set: illegal option -`), including the init hook the database runs on
+#     first boot, so the stack never comes up;
+#   - the migrations hash differently. The runner stores a sha256 of each file,
+#     so a database migrated from a CRLF checkout and later handled from an LF
+#     one reports every migration as edited-since-applied and refuses to run.
+#
+# `text=auto` leaves genuinely binary files alone.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.mjs  text eol=lf

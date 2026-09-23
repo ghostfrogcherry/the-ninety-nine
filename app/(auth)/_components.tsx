@@ -1,8 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 
 /**
- * Shared bits for the two auth pages. Underscore prefix keeps Next from
- * treating this folder as a route.
+ * Shared bits for the auth pages. Underscore prefix keeps Next from treating
+ * this folder as a route.
  */
 
 export const fieldStyle: CSSProperties = {
@@ -17,15 +17,25 @@ export const fieldStyle: CSSProperties = {
   boxSizing: "border-box",
 };
 
+/**
+ * Deliberately colourless. `globals.css` already paints every bare <button>
+ * gruvbox — the previous `#333` background and `#fff` text here overrode that
+ * and put a light-mode button on a near-black page, which is the same bug the
+ * comment on `fieldStyle` describes. All this adds is the full-width shape the
+ * narrow auth column wants.
+ */
 export const buttonStyle: CSSProperties = {
   width: "100%",
   padding: ".55rem",
-  border: "1px solid #333",
-  borderRadius: "4px",
-  background: "#333",
-  color: "#fff",
-  font: "inherit",
   cursor: "pointer",
+};
+
+/** The quieter of two buttons on one page — magic link next to sign-in. */
+export const secondaryButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  background: "var(--bg2)",
+  borderColor: "var(--border)",
+  color: "var(--fg2)",
 };
 
 export function Field({
@@ -59,29 +69,17 @@ export function Field({
 }
 
 /**
- * Error banner. The message comes from `?error=` in the URL, which the server
- * actions set, so it is always one of our own strings — but it is rendered as
- * text, never as HTML, because the query string is still user-controllable.
+ * Re-exported so these pages keep importing their chrome from one place.
+ *
+ * The auth pages used to carry their own copy, with the same props, because
+ * there was no notice class in `globals.css` to lean on. There is now, and two
+ * components with one name and one shape is how they drift apart.
+ *
+ * Messages arrive from `?error=` in the URL, which our own server actions set,
+ * but the query string is user-controllable regardless — so every one is
+ * rendered as text by React, never as HTML.
  */
-export function Notice({ children, tone }: { children: ReactNode; tone: "error" | "info" }) {
-  if (!children) return null;
-  return (
-    <p
-      role={tone === "error" ? "alert" : "status"}
-      style={{
-        padding: ".5rem .75rem",
-        marginBottom: "1rem",
-        borderRadius: "4px",
-        fontSize: ".875rem",
-        border: `1px solid ${tone === "error" ? "#c33" : "#39c"}`,
-        background: tone === "error" ? "#fee" : "#eef6fc",
-        color: "#222",
-      }}
-    >
-      {children}
-    </p>
-  );
-}
+export { Notice } from "@/app/_ui";
 
 /**
  * Auth.js redirects here with its own opaque error codes (`CredentialsSignin`,
@@ -95,7 +93,7 @@ export function readableError(raw: string): string {
       return "Incorrect email or password.";
     case "EmailSignInError":
     case "EmailCreateAccount":
-      return "Could not send the sign-in email. Check the SMTP settings.";
+      return "Could not send the sign-in email. Check the mail settings.";
     case "Verification":
       return "That sign-in link has expired or was already used.";
     case "AccessDenied":
@@ -105,4 +103,19 @@ export function readableError(raw: string): string {
     default:
       return raw;
   }
+}
+
+/**
+ * `searchParams` reader for the auth pages.
+ *
+ * Next hands a repeated query parameter over as an array, so `?error=a&error=b`
+ * makes `params.error` a `string[]` — rendering that straight into a Notice
+ * prints `a,b`. Take the first and be done with it.
+ */
+export function firstParam(
+  params: Record<string, string | string[] | undefined>,
+  key: string,
+): string | undefined {
+  const value = params[key];
+  return Array.isArray(value) ? value[0] : value;
 }

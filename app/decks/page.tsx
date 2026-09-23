@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { currentUserId } from "@/app/api/collections/access";
 import { query } from "@/lib/db";
 import { DECK_FORMATS } from "@/lib/deck";
-import { Badge, Empty, Shell } from "@/app/_ui";
+import { Badge, Empty, Notice, Shell } from "@/app/_ui";
 import { createDeckAction } from "./_actions";
 
 export const dynamic = "force-dynamic";
@@ -57,9 +57,9 @@ export default async function DecksPage({
       subtitle={rows.length ? `${rows.length} deck${rows.length === 1 ? "" : "s"}` : "no decks yet"}
     >
       {deleted ? (
-        <p style={{ color: "var(--red)", fontSize: 12, margin: "0 0 1rem" }}>
-          Deleted “{deleted}” and everything in it.
-        </p>
+        <Notice tone="bad">
+          <p className="notice-line">Deleted “{deleted}” and everything in it.</p>
+        </Notice>
       ) : null}
 
       <form action={createDeckAction} className="filters" style={{ marginBottom: "1.5rem" }}>

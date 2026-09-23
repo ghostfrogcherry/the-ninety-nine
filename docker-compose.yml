@@ -27,7 +27,19 @@ services:
     volumes:
       - ./data/db:/var/lib/postgresql/data
       # Applied in filename order on FIRST init only — an existing ./data/db
-      # is left untouched. Later schema changes need a real migration run.
+      # is left untouched. Later schema changes go through the `migrate`
+      # profile below.
+      #
+      # db/migrations/zzz_record_baseline.sh rides along in the same directory,
+      # sorts after every NNNN_*.sql, and records what they just applied, so a
+      # fresh database starts with a populated schema_migrations rather than a
+      # schema the runner cannot tell apart from seven migrations behind.
+      #
+      # It lives IN this directory rather than being mounted on top of it. A
+      # file bind-mounted inside a read-only directory bind mount makes Docker
+      # create the mount point in the read-only parent, which fails on first
+      # boot with "read-only file system" — or, on some setups, leaves an empty
+      # stub file behind in the host's db/migrations.
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - ninetynine
@@ -88,6 +100,85 @@ services:
     volumes:
       - scryfall-data:/data/scryfall
     command: ["node", "scripts/refresh-scryfall.mjs"]
+    networks:
+      - ninetynine
+
+  # Schema migrations. `/docker-entrypoint-initdb.d` only ever runs on first
+  # init, so this is how every change after the first deploy gets applied.
+  #
+  #   docker compose --profile migrate run --rm migrate
+  #   docker compose --profile migrate run --rm migrate --status
+  #
+  # `restart: no` for the same reason as the refresh: a migration that fails
+  # should stop and be read, not hot-loop against the database.
+  migrate:
+    image: ninetynine-app:local
+    container_name: ninetynine-migrate
+    profiles: ["migrate"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      TZ: ${TZ:-America/Chicago}
+    entrypoint: ["node", "scripts/migrate.mjs"]
+    networks:
+      - ninetynine
+
+  # Backups. Runs the POSTGRES image, not the app image: pg_dump has to match
+  # the server version it dumps, and the app image is node:22-alpine with no
+  # Postgres client in it at all.
+  #
+  #   docker compose --profile backup run --rm backup
+  #   docker compose --profile backup run --rm backup --keep=30 --no-mirror
+  #
+  # The dump is written to a temporary name and renamed only after it has been
+  # restored into a scratch database and its row counts compared against the
+  # live one, so a dump that cannot be restored is never left looking like one
+  # that can.
+  backup:
+    image: postgres:17-alpine
+    container_name: ninetynine-backup
+    profiles: ["backup"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      BACKUP_DIR: /backups
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./data/backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    networks:
+      - ninetynine
+
+  # Restore. Same profile, same image, deliberately a separate service so that
+  # `--profile backup run --rm backup` can never restore by accident.
+  #
+  #   docker compose stop app
+  #   docker compose --profile backup run --rm restore --list
+  #   docker compose --profile backup run --rm restore --file=ninetynine-….dump
+  #   docker compose start app
+  restore:
+    image: postgres:17-alpine
+    container_name: ninetynine-restore
+    profiles: ["backup"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ninetynine}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ninetynine}
+      BACKUP_DIR: /backups
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./data/backups:/backups
+      - ./scripts/restore.sh:/restore.sh:ro
+    entrypoint: ["/bin/sh", "/restore.sh"]
     networks:
       - ninetynine
 

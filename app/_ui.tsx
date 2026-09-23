@@ -63,6 +63,32 @@ export function Identity({ identity }: { identity: string[] }) {
   );
 }
 
+/**
+ * A panel with a coloured left rule, for an outcome the page has to report:
+ * a deletion that happened, an import that landed, a destructive action asking
+ * to be confirmed.
+ *
+ * `title` is optional because two of the three uses are a single line — the
+ * "Deleted X" note on /decks does not want a heading shouting DELETED above it.
+ */
+export function Notice({ tone = "good", title, children }: {
+  tone?: "good" | "bad" | "warn";
+  title?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`panel notice ${tone}`}
+      // A failure has to interrupt a screen reader; "your link is on its way"
+      // should wait its turn.
+      role={tone === "bad" ? "alert" : "status"}
+    >
+      {title ? <h2>{title}</h2> : null}
+      {children}
+    </div>
+  );
+}
+
 export function Badge({ tone = "dim", children }: {
   tone?: "dim" | "good" | "bad" | "warn";
   children: ReactNode;

@@ -9,7 +9,7 @@ import {
   searchMirror, toDeckEntries,
   type DeckCardDetail, type DeckRow, type MirrorSearchRow,
 } from "@/lib/deck";
-import { Badge, Identity, Shell, usd } from "@/app/_ui";
+import { Badge, Identity, Notice, Shell, usd } from "@/app/_ui";
 import {
   addCardAction, deleteDeckAction, importDeckListAction, moveCardAction, removeCardAction,
   renameDeckAction, setQuantityAction, shareDeckAction, unshareDeckAction,
@@ -250,8 +250,7 @@ function DeleteConfirm({ deckId, deck, cards, unresolved, err, base }: {
   deckId: number; deck: DeckRow; cards: number; unresolved: number; err: string; base: string;
 }) {
   return (
-    <div className="panel" style={{ marginBottom: "1rem", borderLeft: "2px solid var(--red)" }}>
-      <h2 style={{ color: "var(--red)" }}>Delete “{deck.name}”?</h2>
+    <Notice tone="bad" title={<>Delete “{deck.name}”?</>}>
 
       <p style={{ fontSize: 12, margin: "0 0 0.6rem" }}>
         This removes the deck and the <span className="stat">{cards}</span> card
@@ -308,7 +307,7 @@ function DeleteConfirm({ deckId, deck, cards, unresolved, err, base }: {
         Type the deck name to confirm. Case and spacing are forgiven; the wrong
         deck is not.
       </p>
-    </div>
+    </Notice>
   );
 }
 
@@ -382,8 +381,7 @@ function ImportSummary({ sp }: { sp: SearchParams }) {
   const more = Number(one(sp.more) || 0);
 
   return (
-    <div className="panel" style={{ marginBottom: "1rem", borderLeft: "2px solid var(--aqua-dim)" }}>
-      <h2>Import</h2>
+    <Notice tone="good" title="Import">
       <div style={{ fontSize: 12 }}>
         Added <span className="stat">{added}</span> card{added === "1" ? "" : "s"} across{" "}
         <span className="stat">{one(sp.rows)}</span> row{one(sp.rows) === "1" ? "" : "s"}.
@@ -392,7 +390,7 @@ function ImportSummary({ sp }: { sp: SearchParams }) {
         <div style={{ marginTop: "0.5rem" }}>
           <div style={{ fontSize: 12, color: "var(--orange)" }}>
             {missed.length + more} line{missed.length + more === 1 ? "" : "s"} could not be matched
-            in the local mirror and were NOT added:
+            in the local mirror and {missed.length + more === 1 ? "was" : "were"} NOT added:
           </div>
           <ul style={{ margin: "0.3rem 0 0", paddingLeft: "1.1rem", fontSize: 11, color: "var(--dim)" }}>
             {missed.map((m, i) => <li key={i}>{m}</li>)}
@@ -400,7 +398,7 @@ function ImportSummary({ sp }: { sp: SearchParams }) {
           </ul>
         </div>
       ) : null}
-    </div>
+    </Notice>
   );
 }
 

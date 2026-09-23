@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { signUpWithCredentials } from "@/lib/auth/actions";
 import { MAX_PASSWORD_BYTES } from "@/lib/auth/password";
-import { Field, Notice, buttonStyle, readableError } from "../_components";
+import { Field, Notice, buttonStyle, firstParam, readableError } from "../_components";
 
 export const metadata = { title: "Create account · The Ninety Nine" };
 
@@ -19,12 +19,11 @@ export default async function SignUpPage({
   if (session?.user) redirect("/collections");
 
   const params = await searchParams;
-  const raw = params.error;
-  const error = Array.isArray(raw) ? raw[0] : raw;
+  const error = firstParam(params, "error");
 
   return (
     <>
-      {error ? <Notice tone="error">{readableError(error)}</Notice> : null}
+      {error ? <Notice tone="bad">{readableError(error)}</Notice> : null}
 
       <form action={signUpWithCredentials}>
         <Field label="Name (optional)" name="name" required={false} autoComplete="name" />
@@ -46,7 +45,7 @@ export default async function SignUpPage({
         </button>
       </form>
 
-      <p style={{ marginTop: "1rem", fontSize: ".8125rem", color: "#555" }}>
+      <p style={{ marginTop: "1rem", fontSize: ".8125rem", color: "var(--dim)" }}>
         At least 8 characters, at most {MAX_PASSWORD_BYTES} bytes — bcrypt ignores anything
         past that, so a longer passphrase would only be partly checked.
       </p>
