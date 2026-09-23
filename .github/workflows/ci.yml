@@ -151,8 +151,12 @@ jobs:
       # The only place the Dockerfile is exercised. `next build` passing in the
       # other job does not prove the image builds: the stages copy specific
       # paths out of the build, and a missing one fails only here.
+      #
+      # Tagged with the name docker-compose.yml gives the app image, so the
+      # smoke test below starts the image this step built instead of building
+      # a second one.
       - name: Build image
-        run: docker build --tag ninetynine-app:ci .
+        run: docker build --tag ninetynine-app:local .
 
       # Every combination a user is told to run. Each profile adds services,
       # and a profile's services are not validated unless it is enabled.
@@ -168,3 +172,47 @@ jobs:
           docker compose --env-file .env.example --profile migrate --profile backup --profile refresh config --quiet
           docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml config --quiet
           docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml --profile migrate --profile backup --profile refresh config --quiet
+
+      # The first install, as the README tells a user to do it: `up`, then the
+      # demo seed. Until this step existed `docker compose up` had never been
+      # run anywhere — the image could not even build — so "the stack comes up
+      # healthy" was a claim, not a result.
+      #
+      # `--wait` returns only once every service's healthcheck passes, and
+      # fails if one goes unhealthy, so this is also the only real test of the
+      # app's healthcheck command inside the Alpine image, as its non-root user.
+      # Against .env.example for the same reason as above; its placeholder
+      # secrets are fine on a runner that is thrown away.
+      - name: Smoke test the stack
+        run: |
+          compose() { docker compose --env-file .env.example "$@"; }
+          compose up -d --wait --wait-timeout 180
+
+          expect() {
+            local got
+            got=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3010$2")
+            if [ "$got" != "$1" ]; then
+              echo "::error::GET $2 returned $got, expected $1"
+              exit 1
+            fi
+            echo "GET $2 -> $got"
+          }
+          expect 200 /api/health
+          expect 200 /signin
+          # The proxy's allow-list is the auth boundary: signed out, a guarded
+          # page must redirect rather than render.
+          expect 307 /collections
+
+          # The one-shots share the app image but not its entrypoint; each is a
+          # separate chance for a script to be missing from the image or to
+          # import something only the builder stage had.
+          compose exec -T app node scripts/seed-demo.mjs ci@example.com
+          compose --profile migrate run --rm migrate --status
+
+      - name: Stack logs
+        if: failure()
+        run: docker compose --env-file .env.example logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose --env-file .env.example down -v
