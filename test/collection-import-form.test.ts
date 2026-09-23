@@ -4,19 +4,8 @@
  *   npm test
  *
  * The pure tests always run. The database tests run only when
- * TEST_DATABASE_URL is set, e.g.
- *
- *   docker run -d --name nn-import-test -p 55432:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-import-test psql -v ON_ERROR_STOP=1 -U ninetynine -d ninetynine < "$f"
- *   done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55432/ninetynine npm test
- *
- * A DEDICATED variable, not DATABASE_URL: these tests insert throwaway users and
- * collections and must never be able to do that to a real instance by
- * inheriting the app's environment.
+ * TEST_DATABASE_URL is set, in a throwaway database of this file's own —
+ * test/_db.ts has the setup, and why it is never DATABASE_URL.
  *
  * The server actions themselves are not exercised here — they pull in
  * `next/cache` and `next/navigation`, which do not load outside a Next server.
@@ -28,6 +17,8 @@ import assert from "node:assert/strict";
 import { describe, it, after, before } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 /**
  * Types come from an extensionless import (erased at runtime, and resolved fine
@@ -307,9 +298,8 @@ describe("unresolved lines carried in a dry-run URL", () => {
  * Database
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("import issues read back", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("import issues read back", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
   let userId: number;
   let mine: number;
@@ -319,7 +309,8 @@ describe("import issues read back", { skip: !DB_URL && "TEST_DATABASE_URL not se
   const email = `import-form-test-${process.pid}-${Date.now()}@ninetynine.invalid`;
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("import-form");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
 
     const user = await pool.query(
       "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
@@ -356,10 +347,9 @@ describe("import issues read back", { skip: !DB_URL && "TEST_DATABASE_URL not se
   });
 
   after(async () => {
-    if (!pool) return;
-    // Cascades to collections -> imports -> issues.
-    await pool.query("DELETE FROM users WHERE id = $1", [userId]);
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   it("returns this import's issues in line order, nulls last", async () => {

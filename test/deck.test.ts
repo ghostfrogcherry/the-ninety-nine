@@ -4,23 +4,8 @@
  *   npm test
  *
  * The pure tests always run. The database tests run only when
- * TEST_DATABASE_URL is set, e.g.
- *
- *   docker run -d --name nn-deck-test -p 55436:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   # the image runs a TEMPORARY server during init and then restarts, so
- *   # pg_isready can pass before the real server exists. Poll a real query:
- *   until docker exec nn-deck-test psql -U ninetynine -d ninetynine -c 'SELECT 1'; do sleep 1; done
- *   for f in db/migrations/*.sql; do
- *     docker exec -i nn-deck-test psql -v ON_ERROR_STOP=1 -U ninetynine -d ninetynine < "$f"
- *   done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55436/ninetynine \
- *     node --experimental-strip-types --test test/deck.test.ts
- *
- * A DEDICATED variable, not DATABASE_URL: these tests insert placeholder rows
- * into `scryfall_cards` and must never be able to do that to a real instance by
- * inheriting the app's environment. Same rule as test/import.test.ts.
+ * TEST_DATABASE_URL is set, in a throwaway database of this file's own —
+ * test/_db.ts has the setup, and why it is never DATABASE_URL.
  */
 
 import assert from "node:assert/strict";
@@ -29,6 +14,8 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 /**
  * Types come from an extensionless import (erased at runtime, and resolved fine
@@ -616,8 +603,6 @@ describe("toDeckEntries", () => {
  * merge-on-move, and the two counting queries (unresolved / owned).
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
 /**
  * Extra mirror rows, on top of db/seed/example-mirror.json.
  *
@@ -690,7 +675,8 @@ function fakeSlug(): string {
   return out;
 }
 
-describe("deck domain against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("deck domain against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
+  let db: TestDatabase;
   let pool: pg.Pool;
   let userId: number;
   let otherUserId: number;
@@ -731,7 +717,8 @@ describe("deck domain against postgres", { skip: !DB_URL && "TEST_DATABASE_URL n
   }
 
   before(async () => {
-    pool = new pg.Pool({ connectionString: DB_URL, max: 4 });
+    db = await createTestDatabase("deck");
+    pool = new pg.Pool({ connectionString: db.url, max: 4 });
 
     for (const c of [...mirror, ...EXTRA_MIRROR]) {
       await pool.query(
@@ -789,10 +776,9 @@ describe("deck domain against postgres", { skip: !DB_URL && "TEST_DATABASE_URL n
   });
 
   after(async () => {
-    if (!pool) return;
-    // Cascades to collections -> collection_cards and decks -> deck_cards.
-    await pool.query("DELETE FROM users WHERE id = ANY($1::int[])", [[userId, otherUserId]]);
-    await pool.end();
+    // No row-by-row cleanup: the whole database goes. See test/_db.ts.
+    await pool?.end();
+    await db?.drop();
   });
 
   /* ---------------------------------------------------------------- *

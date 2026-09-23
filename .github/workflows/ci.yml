@@ -3,7 +3,7 @@
 # Two jobs, independent so a Docker failure never hides a test failure or the
 # other way round:
 #
-#   check  typecheck, the full suite TWICE against one real Postgres, build
+#   check  typecheck, the full suite against a real Postgres, build
 #   image  the Dockerfile and every compose file / profile combination
 #
 # Nothing is pushed or published. This workflow only reads the repository.
@@ -58,7 +58,7 @@ jobs:
         # Probe over TCP, not the socket. The image runs a temporary server
         # during init that listens only on the unix socket, then restarts; a
         # plain `pg_isready` reports ready against that temporary server and
-        # the migrations would race its shutdown. The real server is the only
+        # the first test would race its shutdown. The real server is the only
         # one that ever binds TCP.
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U ninetynine -d ninetynine"
@@ -83,23 +83,10 @@ jobs:
 
       - run: npm run typecheck
 
-      # The database tests expect a migrated schema and do not build one. The
-      # runner rather than a psql loop, because the runner is how every schema
-      # change after first deploy reaches a real database, and it has otherwise
-      # only been exercised against Postgres 16.
-      #
-      # DATABASE_URL is set on this step alone. Were it set on the job, every
-      # later step would inherit it — the exact leak TEST_DATABASE_URL exists to
-      # rule out.
-      - name: Apply migrations
-        run: node scripts/migrate.mjs
-        env:
-          DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
-
       # The database tests skip cleanly when TEST_DATABASE_URL is unset, by
-      # design. So a typo in the variable name turns this step into the 336
-      # pure tests passing and the database half silently not running at all.
-      # The grep fails the build on any skip, and prints which.
+      # design. So a typo in the variable name turns this step into the pure
+      # tests passing and the database half silently not running at all. The
+      # grep fails the build on any skip, and prints which.
       #
       # It looks for TAP's `# SKIP` directive, NOT the `# skipped N` summary:
       # the database tests skip as whole `describe` blocks, and Node counts a
@@ -107,29 +94,32 @@ jobs:
       # suite skipped still reports `# skipped 0`. TAP is what Node prints when
       # stdout is not a terminal, which under `tee` it never is.
       #
-      # Run twice against the same database, because every database test must
-      # delete what it wrote and three files have already been fixed for
-      # forgetting. A leftover row usually passes the run that wrote it and
-      # breaks the one after.
-      - name: Test (first run)
+      # No migration step: each database test file creates and migrates its
+      # own throwaway database through the real runner (test/_db.ts), so the
+      # URL only has to name a database that exists. POSTGRES_USER is a
+      # superuser, which covers the CREATEDB that needs.
+      - name: Test
         run: |
-          npm test | tee "$RUNNER_TEMP/test-run-1.log"
-          if grep -E '^ *ok [0-9]+ - .* # SKIP' "$RUNNER_TEMP/test-run-1.log"; then
+          npm test | tee "$RUNNER_TEMP/test.log"
+          if grep -E '^ *ok [0-9]+ - .* # SKIP' "$RUNNER_TEMP/test.log"; then
             echo "::error::tests were skipped — is TEST_DATABASE_URL reaching the suite?"
             exit 1
           fi
         env:
           TEST_DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
 
-      - name: Test (second run, same database)
+      # Isolation is only structural while every file drops what it created. A
+      # file that forgets its `after` hook still passes — the leak shows up
+      # nowhere but here, as databases piling up on a developer's server.
+      - name: No test databases left behind
         run: |
-          npm test | tee "$RUNNER_TEMP/test-run-2.log"
-          if grep -E '^ *ok [0-9]+ - .* # SKIP' "$RUNNER_TEMP/test-run-2.log"; then
-            echo "::error::tests were skipped — is TEST_DATABASE_URL reaching the suite?"
+          left=$(psql "$URL" -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'nn\_test\_%'")
+          if [ -n "$left" ]; then
+            echo "::error::test databases were not dropped: $left"
             exit 1
           fi
         env:
-          TEST_DATABASE_URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
+          URL: postgres://ninetynine:t@127.0.0.1:5432/ninetynine
 
       # `--webpack` is inside the npm script; call the script, never `next
       # build` directly, or Turbopack builds with no .next/standalone and the

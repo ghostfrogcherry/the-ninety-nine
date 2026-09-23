@@ -4,23 +4,13 @@
  *   npm test
  *
  * The pure tests always run. The database tests run only when
- * TEST_DATABASE_URL is set, e.g.
+ * TEST_DATABASE_URL is set — test/_db.ts has the setup, and why it is never
+ * DATABASE_URL.
  *
- *   docker run -d --name nn-migrate-test -p 55437:5432 \
- *     -e POSTGRES_PASSWORD=t -e POSTGRES_DB=ninetynine -e POSTGRES_USER=ninetynine \
- *     postgres:17-alpine
- *   until docker exec nn-migrate-test psql -U ninetynine -d ninetynine -c 'SELECT 1'; do sleep 1; done
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55437/ninetynine \
- *     node --experimental-strip-types --test test/migrate.test.ts
- *
- * A DEDICATED variable, not DATABASE_URL, for the reason the other files give:
- * these tests CREATE and DROP whole schemas and must never be able to do that
- * to a real instance by inheriting the app's environment.
- *
- * Unlike the other database tests these do NOT run against the migrated schema
- * — they build throwaway schemas of their own and drop them again, because the
- * thing under test is what happens to a database that has not been migrated
- * yet. That also keeps them from colliding with the files that do share one.
+ * Unlike the other database tests these do NOT get a migrated database: each
+ * TEST gets an empty one of its own, because the thing under test is what
+ * happens to a database that has not been migrated yet, and several tests
+ * leave it in a state (half-built, edited ledger) the next must not inherit.
  *
  * `lib/migrate/` is plain .mjs, so it imports directly: no variable-specifier
  * dance is needed, and there are no types to erase.
@@ -36,6 +26,8 @@ import {
   MIGRATION_FILENAME, MigrationError, baselineMigrations, checksum, describePlan,
   loadMigrations, parseMigrationName, planMigrations, runMigrations,
 } from "../lib/migrate/index.mjs";
+
+import { SKIP_WITHOUT_DATABASE, createTestDatabase, type TestDatabase } from "./_db.ts";
 
 /* ------------------------------------------------------------------ *
  * Pure: filenames
@@ -221,27 +213,20 @@ describe("loadMigrations", () => {
  * Against a real Postgres
  * ------------------------------------------------------------------ */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
-
-describe("migration runner against postgres", { skip: DB_URL ? false : "TEST_DATABASE_URL not set" }, () => {
-  let pool: import("pg").Pool;
+describe("migration runner against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
   let pg: typeof import("pg");
 
   /**
-   * Each test gets its own schema, created and dropped around it, with
-   * search_path pointed at it. The runner's own queries use unqualified names
-   * and `to_regclass('public.users')`, so the schema is named `public` inside a
-   * dedicated DATABASE instead — the only way to give it a genuinely empty
-   * `public` without disturbing the one the other test files share.
+   * Each test gets its own empty DATABASE, not merely its own schema: the
+   * runner's queries use unqualified names and `to_regclass('public.users')`,
+   * so the only way to hand it a genuinely empty `public` is a database of its
+   * own. All of them are dropped in `after`.
    */
-  const dbs: string[] = [];
+  const dbs: TestDatabase[] = [];
   async function scratchDb(): Promise<import("pg").Client> {
-    const name = `nn_mig_${Date.now().toString(36)}_${dbs.length}`;
-    await pool.query(`CREATE DATABASE ${name}`);
-    dbs.push(name);
-    const url = new URL(DB_URL!);
-    url.pathname = `/${name}`;
-    const client = new pg.Client({ connectionString: url.toString() });
+    const db = await createTestDatabase("migrate", { migrate: false });
+    dbs.push(db);
+    const client = new pg.Client({ connectionString: db.url });
     await client.connect();
     return client;
   }
@@ -250,14 +235,14 @@ describe("migration runner against postgres", { skip: DB_URL ? false : "TEST_DAT
 
   before(async () => {
     pg = (await import("pg")).default as unknown as typeof import("pg");
-    pool = new pg.Pool({ connectionString: DB_URL });
   });
 
   after(async () => {
-    for (const name of dbs) {
-      await pool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).catch(() => {});
-    }
-    await pool.end();
+    // Drop every one even if an earlier drop fails, then say so: a swallowed
+    // failure here is a leaked database that nobody notices until \l is long.
+    const results = await Promise.allSettled(dbs.map((db) => db.drop()));
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) throw failed.reason;
   });
 
   it("applies the real migrations to an empty database, then is a no-op", async () => {

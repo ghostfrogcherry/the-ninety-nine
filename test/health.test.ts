@@ -5,19 +5,20 @@
  *
  * The pure tests always run and use a fake `Queryable`, which is what lets them
  * pin the timeout path without waiting on a real stalled database. The database
- * tests run only when TEST_DATABASE_URL is set, e.g.
+ * tests run only when TEST_DATABASE_URL is set; see test/_db.ts.
  *
- *   TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55442/ninetynine npm test
- *
- * A DEDICATED variable, not DATABASE_URL, for the reason the other files give.
- * These tests write nothing — `SELECT 1` and `pg_sleep` only — so there are no
- * rows to clean up, only pools to close.
+ * They are the one place that connects to the database TEST_DATABASE_URL
+ * names rather than a throwaway one: they need a live server, not a schema,
+ * and write nothing — `SELECT 1` and `pg_sleep` only — so there is nothing a
+ * throwaway database would isolate, only pools to close.
  */
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
 import pg from "pg";
+
+import { SKIP_WITHOUT_DATABASE, TEST_DATABASE_URL } from "./_db.ts";
 
 // Same variable-specifier idiom as test/filters.test.ts: types from the
 // extensionless path, values from the real `.ts` file under type stripping.
@@ -102,9 +103,9 @@ describe("healthStatus", () => {
  * Database
  * ================================================================== */
 
-const DB_URL = process.env.TEST_DATABASE_URL;
+const DB_URL = TEST_DATABASE_URL;
 
-describe("checkDatabase against postgres", { skip: !DB_URL && "TEST_DATABASE_URL not set" }, () => {
+describe("checkDatabase against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
   let pool: pg.Pool;
 
   before(() => {

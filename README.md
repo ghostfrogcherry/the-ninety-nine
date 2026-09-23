@@ -32,16 +32,25 @@ more.
 
 344 tests pass without a database and 507 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
-all three to that on every push and pull request: the suite runs twice against
-one Postgres 17 and fails if any database test skips, the build fails on any
-warning, and the Docker image is built and every compose profile validated.
+all three to that on every push and pull request: the suite runs against
+Postgres 17 and fails if any database test skips or leaves its database behind,
+the build fails on any warning, and the Docker image is built and every compose
+profile validated.
 
-The suite runs its files **serially** (`--test-concurrency=1` in the `test`
-script) and that flag is load-bearing, not taste. Node runs test files in
-parallel processes by default, and every database-backed file seeds the same
-shared fixture into the same tables, so in parallel they delete each other's
-rows mid-assertion — about fifteen failures, in whichever files lose that run's
-race.
+The database tests are opt-in and need only a Postgres server and a role with
+`CREATEDB` — no schema, no migrations:
+
+```sh
+TEST_DATABASE_URL=postgres://ninetynine:t@127.0.0.1:55432/postgres npm test
+```
+
+Each database-backed test file creates its own throwaway database, runs the real
+migrations into it, and drops it when it finishes (`test/_db.ts`).
+`TEST_DATABASE_URL` is only the connection used to create and drop those; no
+test reads or writes the database it names, and `DATABASE_URL` is never
+consulted. Because no two files share a database, the files run in parallel —
+Node's default — and nothing a test writes can leak into another file or the
+next run.
 
 ## Stack
 
@@ -481,14 +490,13 @@ duplicate key, permanently locking that account out. Everything that writes
   did not slip through; a dry run created no tables. The initdb hook and the
   runner were then run against the same database and agreed on all six
   checksums, with the runner reporting the box up to date rather than changed.
-- The whole suite runs green against one Postgres 16: **496/496**, and it is
-  repeatable — three consecutive runs against the same database all pass, and
-  leave `scryfall_cards`, `card_price_history`, `scryfall_bulk_imports` and
-  `users` back at zero. Every file also passes alone on a fresh database. Getting
-  there took serializing the files and making `import.test.ts`,
-  `scryfall.test.ts` and `prices.test.ts` each clean up the mirror, price and
-  bulk-import rows that hang off no user and so cascade away with nothing.
-  With the health check's tests added it is 507/507, twice in a row.
+- The whole suite runs green against one Postgres 16: **496/496**, with the
+  files in parallel, and it is repeatable — consecutive runs against the same
+  server all pass, as do two whole suites started at once against it, and none
+  leaves an `nn_test_*` database behind. That used to take serializing the files
+  and every file remembering to delete the mirror, price and bulk-import rows
+  that hang off no user; three files were fixed for forgetting. A database per
+  file made both unnecessary. With the health check's tests added it is 507.
 - The health check, against `.next/standalone` and a migrated Postgres 16, with
   the healthcheck's argv taken verbatim from `docker-compose.yml`: database up,
   200 and exit 0; every Postgres process frozen with `SIGSTOP`, 503 and exit 1
@@ -590,8 +598,3 @@ history.
 - The healthcheck itself has been run against the standalone server, not inside
   a container: there has been no Docker daemon to run `docker compose up` with
   it.
-- The database tests share one database, must run serially, and each file has to
-  delete the rows it wrote. Three files have had to be fixed for forgetting.
-  Correctness there is the test author's job rather than a property of the
-  setup; a database per file, or a transaction rolled back per test, would make
-  it structural.
