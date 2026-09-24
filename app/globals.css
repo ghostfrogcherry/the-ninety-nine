@@ -119,7 +119,10 @@ button:hover { background: var(--bg4); box-shadow: var(--glow); }
 
 .topnav {
   display: flex;
-  gap: 1.25rem;
+  /* Wraps rather than overflowing: four links, an email address and sign-out
+     do not fit one line at phone width, and the page scrolled sideways. */
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
   align-items: center;
   margin-bottom: 1.75rem;
   padding-bottom: 0.6rem;
@@ -554,3 +557,523 @@ input[type="file"]::file-selector-button:hover { background: var(--bg4); }
 }
 .issue-list .why { color: var(--dim2); }
 .issue-list .cands { color: var(--dim); }
+
+/* ---- shared helpers --------------------------------------------------- */
+
+/* Text for screen readers only: the mana cost behind a row of pips, the name
+   under a pool card whose image already shows it. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.dim { color: var(--dim2); }
+a.mini { display: inline-block; color: var(--fg2); text-decoration: none; }
+a.mini:hover { text-shadow: none; }
+.panel code {
+  color: var(--fg2);
+  background: var(--bg2);
+  border-radius: 2px;
+  padding: 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+.panel-note { font-size: 11px; color: var(--dim); line-height: 1.55; margin: 0.6rem 0 0; }
+.panel-note b { color: var(--fg2); font-weight: 400; }
+.panel h2 .count { color: var(--dim2); margin-left: 0.25rem; }
+
+/* The one primary action on a screen: start, save, join. */
+button.big {
+  padding: 0.5rem 1.2rem;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  border-color: var(--yellow);
+  transition: background 0.12s, box-shadow 0.12s, transform 0.08s;
+}
+button.big:active { transform: translateY(1px); }
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.big-link {
+  display: inline-block;
+  border: 1px solid var(--aqua-dim);
+  border-radius: 3px;
+  padding: 0.4rem 1rem;
+  font-size: 13px;
+}
+.big-link:hover { border-color: var(--yellow); }
+
+/* ---- deck export ------------------------------------------------------ */
+
+.export-text {
+  width: 100%;
+  resize: vertical;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg2);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* ---- drafts: layout --------------------------------------------------- */
+
+.draft-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1.5rem;
+  align-items: start;
+}
+.draft-cols > * { min-width: 0; }
+.draft-side { display: grid; gap: 1rem; }
+@media (max-width: 900px) {
+  .draft-cols { grid-template-columns: minmax(0, 1fr); }
+}
+.draft-cols > section > .board-head:first-child,
+.draft-cols > section > div:first-child > .board-head { margin-top: 0; }
+
+.draft-hint { font-size: 12px; color: var(--dim); margin: 0.75rem 0; }
+.side-note { margin: 0; padding: 0 0.2rem; }
+
+/* ---- drafts: the pod list --------------------------------------------- */
+
+.pod-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.pod {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  align-items: baseline;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--aqua-dim);
+  border-radius: 4px;
+  background: var(--bg1);
+  color: var(--fg1);
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.pod:hover {
+  color: var(--fg0);
+  text-shadow: none;
+  border-color: var(--yellow-dim);
+  background: var(--bg2);
+  transform: translateX(2px);
+}
+.pod-name { color: var(--fg0); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pod-meta { grid-column: 1 / -1; font-size: 11px; color: var(--dim); }
+
+/* ---- drafts: the create form ------------------------------------------ */
+
+.set-filter { display: flex; gap: 0.35rem; align-items: center; margin-bottom: 0.9rem; }
+.set-filter input { flex: 1; min-width: 0; font-size: 12px; }
+.mini-link { font-size: 11px; }
+
+.create-pod { display: grid; gap: 0.55rem; }
+.create-pod label { display: grid; gap: 0.2rem; font-size: 11px; color: var(--dim); }
+.create-pod label > span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--dim2);
+}
+.create-pod select, .create-pod input { width: 100%; min-width: 0; font-size: 12px; }
+.field-note { font-size: 10px; color: var(--dim2); margin-top: -0.3rem; }
+.create-pod button.big { margin-top: 0.3rem; }
+
+.advanced > summary { cursor: pointer; font-size: 11px; color: var(--dim); list-style: none; }
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary::before { content: "▸ "; color: var(--aqua-dim); }
+.advanced[open] > summary::before { content: "▾ "; }
+.advanced > summary:hover { color: var(--yellow); }
+.advanced-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
+
+/* ---- drafts: seats round the table ------------------------------------ */
+
+.seat-ring {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr));
+  gap: 0.5rem 1rem;
+}
+.seat {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg1);
+  padding: 0.45rem 0.6rem;
+  font-size: 12px;
+  min-width: 0;
+  transition: border-color 0.2s, background 0.2s;
+}
+/* The pass direction, drawn in the gap after each seat. Only while drafting:
+   in the lobby and after the last pick nothing is moving. */
+.seat-ring.s-drafting .seat:not(:last-child)::after {
+  position: absolute;
+  right: -0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--dim2);
+}
+.seat-ring.s-drafting.pass-left .seat:not(:last-child)::after { content: "→"; }
+.seat-ring.s-drafting.pass-right .seat:not(:last-child)::after { content: "←"; }
+/* Two seats to a row on a phone: an arrow at the end of a row would point off
+   the screen, and the "passing left →" chip above already says which way. */
+@media (max-width: 520px) {
+  .seat-ring.s-drafting .seat::after { content: none !important; }
+}
+
+.seat-top { display: flex; align-items: baseline; gap: 0.35rem; min-width: 0; }
+.seat-no { color: var(--dim2); font-size: 10px; font-variant-numeric: tabular-nums; }
+.seat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg1); }
+.seat-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim2);
+  border: 1px solid var(--bg4);
+  border-radius: 2px;
+  padding: 0 0.25rem;
+}
+.seat-tag.you { color: var(--aqua); border-color: var(--aqua-dim); }
+.seat.me { border-color: var(--aqua-dim); background: linear-gradient(var(--bg2), var(--bg1)); }
+.seat.bot .seat-name { color: var(--dim); }
+.seat.open { border-style: dashed; background: none; }
+.seat.open .seat-name { color: var(--dim2); font-style: italic; }
+.seat.blocking {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 1px var(--yellow-dim), var(--glow);
+  animation: seat-glow 1.6s ease-in-out infinite;
+}
+@keyframes seat-glow { 50% { box-shadow: 0 0 0 1px var(--yellow-dim); } }
+
+.seat-bar { display: block; height: 3px; background: var(--bg3); border-radius: 2px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
+.seat-bar > span { display: block; height: 100%; background: var(--aqua-dim); border-radius: 2px; transition: width 0.4s ease; }
+.seat.me .seat-bar > span { background: var(--aqua); }
+.seat.blocking .seat-bar > span { background: var(--yellow); }
+.seat-meta { display: block; font-size: 10px; color: var(--dim2); }
+.seat-wait { color: var(--yellow); }
+.seat-saved { color: var(--green); }
+
+/* ---- drafts: lobby ---------------------------------------------------- */
+
+.start-row { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; margin-top: 1rem; }
+.waiting-line { display: flex; align-items: center; gap: 0.6rem; font-size: 13px; color: var(--fg2); margin: 1rem 0 0.5rem; }
+.waiting-line b { color: var(--fg0); font-weight: 600; }
+.pulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--yellow);
+  box-shadow: 0 0 0 0 rgba(250, 189, 47, 0.6);
+  animation: pulse 1.6s ease-out infinite;
+}
+@keyframes pulse {
+  70% { box-shadow: 0 0 0 8px rgba(250, 189, 47, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(250, 189, 47, 0); }
+}
+
+.invite-row { display: flex; gap: 0.35rem; align-items: center; }
+.invite-input { flex: 1; min-width: 0; font-size: 11px; color: var(--aqua); }
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.9rem; margin: 0; font-size: 12px; }
+.facts dt { color: var(--dim2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; padding-top: 0.15rem; }
+.facts dd { margin: 0; color: var(--fg1); min-width: 0; }
+
+/* ---- drafts: the table ------------------------------------------------ */
+
+.draft-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; margin: 0 0 0.9rem; }
+.draft-pick { margin: 0; font-size: 1.15rem; font-weight: 400; color: var(--dim); letter-spacing: 0; }
+.draft-pick b { color: var(--yellow); font-weight: 700; text-shadow: var(--glow); font-variant-numeric: tabular-nums; }
+.draft-pick .of { color: var(--dim2); font-size: 0.8em; }
+.draft-pick .sep { color: var(--dim2); margin: 0 0.6rem; }
+.draft-dir { font-size: 11px; color: var(--dim); border: 1px solid var(--border); border-radius: 3px; padding: 0.05rem 0.5rem; }
+.draft-left { font-size: 11px; color: var(--dim2); }
+@media (min-width: 901px) {
+  .draft-left { margin-left: auto; }
+  .picks-jump { display: none; }
+}
+/* Stacked, the picks panel sits below a pack two cards wide and seven deep;
+   this is the way down to it without scrolling past every card. */
+.picks-jump { font-size: 11px; }
+
+/* The pack: card images at ~146px, as many columns as fit, two at phone
+   width. Every card is a <button> in its own <form>; the hover lift, the focus
+   ring and the "taking it" state are all CSS, so a pick behaves the same with
+   JavaScript off. */
+.pack-grid {
+  display: grid;
+  /* 124px is the narrowest a card image stays readable at; it is what fits a
+     14-card pack in three rows beside the picks panel on a laptop screen, so
+     the whole pack can be weighed without scrolling. */
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 0.75rem;
+  animation: pack-in 0.32s ease-out both;
+}
+@keyframes pack-in { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 520px) {
+  .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+}
+.pack-grid form { margin: 0; min-width: 0; }
+
+/* The button never moves; the card inside it does. Lifting the button itself
+   moves its hit area out from under a pointer resting near the bottom edge,
+   which ends the hover, which drops the card back under the pointer — a
+   flicker loop on every card someone hesitates over. */
+.pick-card {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 4.75% / 3.5%;
+  cursor: pointer;
+  position: relative;
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+.pick-card > * {
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.pick-card img, .pool-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 488 / 680;
+  border-radius: 4.75% / 3.5%;
+  background: var(--bg2);
+}
+.pick-card:hover { background: none; box-shadow: none; }
+/* Pointer devices only: a phone keeps :hover on whatever was last tapped, so
+   the card under your thumb stayed lifted and outlined into the next pack. */
+@media (hover: hover) {
+  .pick-card:hover > * {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.55), 0 0 0 2px var(--yellow-dim), var(--glow);
+  }
+}
+.pick-card:focus-visible { outline: none; }
+.pick-card:focus-visible > * {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 3px var(--blue), 0 10px 22px rgba(0, 0, 0, 0.55);
+}
+.pick-card:active > * { transform: translateY(-1px) scale(0.985); }
+/* Set by PickButton while the pick is in flight: the chosen card holds its
+   lift and glows, and the rest of the pack dims and stops taking clicks. With
+   JavaScript off nothing sets it, and the browser's own page load is the
+   feedback. */
+.pick-card[data-pending] { cursor: progress; }
+.pick-card[data-pending] > * {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 3px var(--aqua), 0 0 18px rgba(142, 192, 124, 0.45);
+}
+.pick-card[data-pending]::after {
+  content: "taking…";
+  position: absolute;
+  left: 50%;
+  bottom: 10%;
+  transform: translateX(-50%);
+  background: rgba(29, 32, 33, 0.92);
+  border: 1px solid var(--aqua);
+  color: var(--aqua);
+  border-radius: 3px;
+  padding: 0.05rem 0.5rem;
+  font-size: 11px;
+}
+.pack-grid:has(.pick-card[data-pending]) .pick-card:not([data-pending]) {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+  pointer-events: none;
+}
+.pack-grid:has(.pick-card[data-pending]) .pick-card:not([data-pending]) > * { transform: none; box-shadow: none; }
+
+/* A card the mirror has no image for, drawn as a frame the same shape so the
+   grid does not develop holes. */
+.card-text {
+  aspect-ratio: 488 / 680;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid var(--bg4);
+  border-radius: 4.75% / 3.5%;
+  background: linear-gradient(160deg, var(--bg3), var(--bg1));
+  text-align: left;
+  color: var(--fg1);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.card-text-top { display: flex; justify-content: space-between; gap: 0.3rem; align-items: flex-start; }
+.card-text-name { color: var(--fg0); font-weight: 600; overflow-wrap: anywhere; }
+.card-text-art {
+  flex: 1;
+  min-height: 2rem;
+  border-radius: 3px;
+  --tint: var(--dim2);
+  background:
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--tint) 45%, transparent) 0 28%, transparent 29%),
+    linear-gradient(180deg, var(--bg2), var(--bg0));
+  border: 1px solid var(--bg4);
+}
+.card-text.g-W .card-text-art { --tint: #f8f4d8; }
+.card-text.g-U .card-text-art { --tint: var(--blue); }
+.card-text.g-B .card-text-art { --tint: var(--purple); }
+.card-text.g-R .card-text-art { --tint: var(--red); }
+.card-text.g-G .card-text-art { --tint: var(--green); }
+.card-text.g-multi .card-text-art { --tint: var(--yellow); }
+.card-text.g-land .card-text-art { --tint: var(--orange); }
+.card-text-type { color: var(--dim); }
+.card-text-rarity { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim2); }
+.card-text.r-uncommon .card-text-rarity { color: var(--blue); }
+.card-text.r-rare .card-text-rarity { color: var(--yellow); }
+.card-text.r-mythic .card-text-rarity { color: var(--orange); }
+
+/* Waiting on a neighbour: a calm placeholder shaped like a pack, so the page
+   does not jump when the real one arrives. */
+.waiting-panel {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 1rem 1.1rem 1.2rem;
+  background: var(--bg1);
+}
+.waiting-panel .waiting-line { margin-top: 0; font-size: 14px; }
+.ghost-pack {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+.ghost-card {
+  aspect-ratio: 488 / 680;
+  border-radius: 4.75% / 3.5%;
+  background: linear-gradient(100deg, var(--bg2) 30%, var(--bg3) 50%, var(--bg2) 70%) 0 0 / 300% 100%;
+  animation: ghost 2.4s ease-in-out infinite;
+}
+@keyframes ghost { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* ---- drafts: mana pips ------------------------------------------------ */
+
+.mana { display: inline-flex; flex: none; align-items: center; }
+.mana > span[aria-hidden] { display: inline-flex; gap: 2px; align-items: center; }
+.pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 2px;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1d2021;
+  background: var(--bg4);
+}
+.pip.n { background: #a89984; }
+.pip.w { background: #f8f4d8; }
+.pip.u { background: var(--blue); }
+.pip.b { background: var(--purple); }
+.pip.r { background: var(--red); }
+.pip.g { background: var(--green); }
+.pip.hybrid { font-size: 8px; }
+.mana-sep { color: var(--dim2); font-size: 10px; margin: 0 1px; }
+
+/* ---- drafts: picks panel ---------------------------------------------- */
+
+.picks-panel h2 { display: flex; align-items: baseline; gap: 0.2rem; }
+.picks-empty { font-size: 11px; color: var(--dim2); margin: 0; }
+.picks-curve { margin-bottom: 0.6rem; }
+.picks-curve .curve { height: 38px; }
+.pick-group { margin-top: 0.55rem; }
+.pick-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.2rem;
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.pick-group h3 .count { color: var(--dim2); }
+.pick-swatch { width: 8px; height: 8px; border-radius: 50%; background: var(--dim2); }
+.g-W .pick-swatch { background: #f8f4d8; }
+.g-U .pick-swatch { background: var(--blue); }
+.g-B .pick-swatch { background: var(--purple); }
+.g-R .pick-swatch { background: var(--red); }
+.g-G .pick-swatch { background: var(--green); }
+.g-multi .pick-swatch { background: linear-gradient(90deg, var(--yellow), var(--red), var(--blue)); }
+.g-land .pick-swatch { background: var(--orange); border-radius: 1px; }
+.pick-group ul { list-style: none; margin: 0; padding: 0; }
+.pick-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+  font-size: 12px;
+}
+.pick-row:hover { background: var(--bg2); }
+.pick-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-n { color: var(--yellow-dim); margin-right: 0.35rem; font-variant-numeric: tabular-nums; }
+/* Hover preview, pointer devices with the sidebar beside the pack only; on
+   touch it would stick open, and stacked it would cover the list. */
+.pick-preview { display: none; }
+@media (hover: hover) and (min-width: 901px) {
+  .pick-row:hover .pick-preview {
+    display: block;
+    position: absolute;
+    right: calc(100% + 1.2rem);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 200px;
+    aspect-ratio: 488 / 680;
+    border-radius: 4.75% / 3.5%;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.7);
+    z-index: 20;
+    pointer-events: none;
+  }
+}
+
+/* ---- drafts: the finished pool ---------------------------------------- */
+
+.pack-grid.pool { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 0.6rem; animation: none; }
+@media (max-width: 520px) {
+  .pack-grid.pool { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; }
+}
+.pool-card { margin: 0; transition: transform 0.14s ease; }
+.pool-card:hover { transform: translateY(-3px); }
+.save-panel { border-left: 2px solid var(--yellow-dim); }
+@media (max-width: 900px) {
+  /* Stacked, the save button would sit under forty-odd card images; it is the
+     one thing to do on this screen, so it goes first. */
+  .draft-cols > .save-first { order: -1; }
+}
+@media (max-width: 520px) {
+  .pool .card-text { font-size: 9px; padding: 0.35rem; gap: 0.25rem; }
+  .pool .pip { min-width: 11px; height: 11px; font-size: 7px; }
+}
+.done-banner {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--aqua-dim);
+  border-radius: 4px;
+  background: var(--bg1);
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+}
+.save-panel button.big { width: 100%; margin-top: 0.7rem; }
+
+/* ---- drafts: join ----------------------------------------------------- */
+
+.join-card { max-width: 34rem; border-left: 2px solid var(--aqua-dim); padding: 1.1rem 1.25rem 1.3rem; }
+.join-head { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+.join-card .join-name { margin: 0; font-size: 1.15rem; text-transform: none; letter-spacing: 0; color: var(--fg0); }
+.join-card .big-link { margin-top: 0.8rem; }

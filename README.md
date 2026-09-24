@@ -29,8 +29,10 @@ more.
 | Backup and restore (`scripts/backup.sh`, `scripts/restore.sh`) | Done — every dump is restored and row-checked before it is kept |
 | Demo seed (`scripts/seed-demo.mjs`) | Done — a clickable install without a 78 MB download |
 | Health check (`/api/health`, `lib/health/`) | Done — compose healthcheck on the app, Caddy waits for it |
+| Booster drafting (`lib/draft/`, `/drafts`) | Done — 2–8 seats, bots for empty ones, invite links, playable with JavaScript off |
+| Deck export (`lib/deck/export.ts`, `/decks/[id]/export`) | Done — Arena/MTGO text for untap.in, copy or download |
 
-347 tests pass without a database and 510 with one; `tsc --noEmit` is clean and
+414 tests pass without a database and 598 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
 all three to that on every push and pull request: the suite runs against
 Postgres 17 and fails if any database test skips or leaves its database behind,
@@ -263,6 +265,57 @@ a sentence rather than an error page.
 `POST /api/collections/[id]/import` is unchanged and still the path for curl and
 scripts. Both front doors call the same `importCollection`, and both read the
 same `MAX_IMPORT_BYTES`.
+
+## Drafting
+
+`/drafts` runs a booster draft for friends who have accounts on this box, with
+bots in whatever seats nobody takes. Draft any set from the local mirror, then
+each player saves their picks as a deck and plays it on
+[untap.in](https://untap.in).
+
+**A pod.** Pick a set (the list can be filtered by name or code — a real mirror
+has hundreds), a name and 2–8 seats. Packs default to 3 × 14 cards; the
+*Advanced* fold changes both. You get seat 1 and an invite link.
+
+**Inviting.** Send the link (`/drafts/join/<slug>`). It is shown in full when
+`AUTH_URL` is set, so it can go straight into a group chat. Everyone at the
+table needs an account here: a friend without one opens the link, is sent to
+sign in, follows *Create one* to `/signup`, and lands back on the invite
+afterwards. The link only names the pod — it never takes a seat by itself, so
+a chat app unfurling it does not sit a bot down at your table. Joining closes
+once the draft starts.
+
+**Bots.** Empty seats become bots when the creator presses *Start*. A bot picks
+the moment a pack reaches it, favouring rares and then the colours it has
+already taken, so the only people anyone waits on are people.
+
+**At the table.** Each card in the pack is a button; clicking one takes it.
+Packs pass left, right, left. The seats strip shows everyone's progress and who
+you are waiting on, and your picks sit beside the pack grouped by colour and
+mana value. Everything works with JavaScript off (the waiting pages then
+refresh themselves every few seconds); with it on, they update in place.
+
+**Afterwards.** Once your last pick is made — even while friends are still
+picking — *Save as deck* turns your pool into a `limited` deck. Add basic lands
+on the deck page (search with *all cards*), move what you are not playing to
+the sideboard, then use the deck page's **Export** panel: copy the text, or
+download it as `<deck name>.txt`, and paste it into untap.in → Decks → Import.
+The export is Arena/MTGO list format, so other deck tools read it too.
+
+**Which sets can be drafted.** A set is offered once it has at least 45
+different cards that appear in boosters (basic lands, tokens and art cards
+excluded). The demo seed has none, so on a fresh install the page says so; a
+real mirror is needed:
+
+```sh
+docker compose --profile refresh run --rm scryfall-refresh --force
+```
+
+Run that `--force` refresh once after upgrading to migration 0008, even with a
+mirror already loaded. It is what teaches the mirror Scryfall's `booster` flag
+— which printings actually appear in packs. Until then a set's packs are drawn
+from every printing in it, showcase frames and promos included, and the set
+picker marks those sets *all printings*.
 
 ## Migrations
 

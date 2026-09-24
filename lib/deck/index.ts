@@ -91,6 +91,11 @@ export const DECK_FORMATS = [
   "legacy",
   "vintage",
   "pauper",
+  // What a drafted pool is saved as (lib/draft's savePicksAsDeck). Listed here
+  // rather than special-cased so that renaming a drafted deck does not see a
+  // format this list lacks and offer to retype it; the deck page gives it a
+  // 40-card check in place of the Commander one.
+  "limited",
 ] as const;
 
 /** Which card pool the picker searches. Owned first: this is a collection app. */

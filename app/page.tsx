@@ -17,6 +17,7 @@ export default function Home() {
       <nav className="home-nav">
         <Link href="/collections">Collections</Link>
         <Link href="/decks">Decks</Link>
+        <Link href="/drafts">Drafts</Link>
         <Account />
       </nav>
     </main>
