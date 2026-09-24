@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { signIn, signOut } from "@/auth";
 import { pool } from "@/lib/db";
+import { CALLBACK_PARAM, safeCallbackPath } from "@/lib/auth/callback";
 import { isEmailProviderConfigured } from "@/lib/auth/email-provider";
 import { appBaseUrl, isMailConfigured, sendMail } from "@/lib/auth/mail";
 import { passwordResetEmail } from "@/lib/auth/messages";
@@ -41,12 +42,29 @@ import { createCredentialsUser, findUserByEmail } from "@/lib/auth/users";
 
 const DEFAULT_REDIRECT = "/collections";
 
-function backToSignIn(message: string): never {
-  redirect(`/signin?error=${encodeURIComponent(message)}`);
+/**
+ * The page the person was on their way to when the proxy sent them to sign in
+ * — see lib/auth/callback.ts. Re-parsed from the form here rather than trusted
+ * from the page that rendered the hidden field, because the field is input.
+ */
+function destination(formData: FormData): string | null {
+  return safeCallbackPath(formData.get(CALLBACK_PARAM));
 }
 
-function backToSignUp(message: string): never {
-  redirect(`/signup?error=${encodeURIComponent(message)}`);
+/** `?error=`, plus the destination, so a mistyped password does not also lose
+ *  the invite link the person was trying to reach. */
+function withError(path: string, message: string, next?: string | null): string {
+  const qs = new URLSearchParams({ error: message });
+  if (next) qs.set(CALLBACK_PARAM, next);
+  return `${path}?${qs}`;
+}
+
+function backToSignIn(message: string, next?: string | null): never {
+  redirect(withError("/signin", message, next));
+}
+
+function backToSignUp(message: string, next?: string | null): never {
+  redirect(withError("/signup", message, next));
 }
 
 function backToReset(message: string): never {
@@ -63,18 +81,19 @@ export async function signInWithCredentials(formData: FormData): Promise<void> {
     email: formData.get("email"),
     password: formData.get("password"),
   });
-  if (!parsed.success) backToSignIn(firstIssue(parsed.error));
+  const next = destination(formData);
+  if (!parsed.success) backToSignIn(firstIssue(parsed.error), next);
 
   try {
     await signIn("credentials", {
       email: parsed.data.email, // normalised by the schema
       password: parsed.data.password,
-      redirectTo: DEFAULT_REDIRECT,
+      redirectTo: next ?? DEFAULT_REDIRECT,
     });
   } catch (error) {
     if (error instanceof AuthError) {
       // Never distinguish "no such user" from "wrong password" to the client.
-      backToSignIn("Incorrect email or password.");
+      backToSignIn("Incorrect email or password.", next);
     }
     throw error; // NEXT_REDIRECT and genuine faults pass through
   }
@@ -85,17 +104,20 @@ export async function signInWithMagicLink(formData: FormData): Promise<void> {
     backToSignIn("Magic-link sign-in is not configured on this server.");
   }
 
+  const next = destination(formData);
   const parsed = magicLinkSchema.safeParse({ email: formData.get("email") });
-  if (!parsed.success) backToSignIn(firstIssue(parsed.error));
+  if (!parsed.success) backToSignIn(firstIssue(parsed.error), next);
 
   try {
     await signIn("nodemailer", {
       email: parsed.data.email,
-      redirectTo: DEFAULT_REDIRECT,
+      // Carried inside the emailed link, so the invite survives the detour
+      // through someone's inbox too.
+      redirectTo: next ?? DEFAULT_REDIRECT,
     });
   } catch (error) {
     if (error instanceof AuthError) {
-      backToSignIn("Could not send the sign-in email. Check the SMTP settings.");
+      backToSignIn("Could not send the sign-in email. Check the SMTP settings.", next);
     }
     throw error;
   }
@@ -107,11 +129,14 @@ export async function signUpWithCredentials(formData: FormData): Promise<void> {
     email: formData.get("email"),
     password: formData.get("password"),
   });
-  if (!parsed.success) backToSignUp(firstIssue(parsed.error));
+  // A friend sent a draft invite usually has no account yet: sign-up is on
+  // their way to the invite, so it carries the destination as sign-in does.
+  const next = destination(formData);
+  if (!parsed.success) backToSignUp(firstIssue(parsed.error), next);
 
   const confirm = formData.get("confirm");
   if (typeof confirm === "string" && confirm !== parsed.data.password) {
-    backToSignUp("Passwords do not match.");
+    backToSignUp("Passwords do not match.", next);
   }
 
   const created = await createCredentialsUser(parsed.data);
@@ -122,18 +147,18 @@ export async function signUpWithCredentials(formData: FormData): Promise<void> {
     // Note this deliberately refuses to attach a password to an existing
     // magic-link-only account (password_hash IS NULL). Letting a stranger set
     // the password on someone else's row by "signing up" would be a takeover.
-    backToSignUp("That email is already registered. Sign in instead.");
+    backToSignUp("That email is already registered. Sign in instead.", next);
   }
 
   try {
     await signIn("credentials", {
       email: parsed.data.email,
       password: parsed.data.password,
-      redirectTo: DEFAULT_REDIRECT,
+      redirectTo: next ?? DEFAULT_REDIRECT,
     });
   } catch (error) {
     if (error instanceof AuthError) {
-      backToSignIn("Account created. Please sign in.");
+      backToSignIn("Account created. Please sign in.", next);
     }
     throw error;
   }

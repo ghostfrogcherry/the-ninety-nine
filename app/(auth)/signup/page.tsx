@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { signUpWithCredentials } from "@/lib/auth/actions";
+import { CALLBACK_PARAM, safeCallbackPath } from "@/lib/auth/callback";
 import { MAX_PASSWORD_BYTES } from "@/lib/auth/password";
 import { Field, Notice, buttonStyle, firstParam, readableError } from "../_components";
 
@@ -15,17 +16,21 @@ export default async function SignUpPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const session = await auth();
-  if (session?.user) redirect("/collections");
-
   const params = await searchParams;
   const error = firstParam(params, "error");
+  // Carried from the sign-in page, so a friend who follows a draft invite and
+  // has to make an account first still ends up at the invite.
+  const next = safeCallbackPath(firstParam(params, CALLBACK_PARAM));
+
+  const session = await auth();
+  if (session?.user) redirect(next ?? "/collections");
 
   return (
     <>
       {error ? <Notice tone="bad">{readableError(error)}</Notice> : null}
 
       <form action={signUpWithCredentials}>
+        {next ? <input type="hidden" name={CALLBACK_PARAM} value={next} /> : null}
         <Field label="Name (optional)" name="name" required={false} autoComplete="name" />
         <Field label="Email" name="email" type="email" autoComplete="username" />
         <Field
@@ -51,7 +56,10 @@ export default async function SignUpPage({
       </p>
 
       <p style={{ marginTop: "1rem", fontSize: ".875rem" }}>
-        Already have an account? <Link href="/signin">Sign in</Link>
+        Already have an account?{" "}
+        <Link href={next ? `/signin?${new URLSearchParams({ [CALLBACK_PARAM]: next })}` : "/signin"}>
+          Sign in
+        </Link>
       </p>
     </>
   );

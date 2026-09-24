@@ -10,8 +10,9 @@ import {
 import { Identity, Shell, usd } from "@/app/_ui";
 import { Account } from "@/app/_account";
 import { AddPanel, ImportSummary, PastePanel } from "./_add";
-import { CurvePanel, LegalityPanel } from "./_analysis";
+import { CurvePanel, LegalityPanel, LimitedPanel, LIMITED_MIN } from "./_analysis";
 import { CardLine } from "./_cards";
+import { ExportPanel } from "./_export";
 import { DeleteConfirm, SettingsPanel, ShareControl } from "./_settings";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,12 @@ export default async function DeckPage({
   const validation = validateCommanderDeck(toDeckEntries(cards));
   const byBoard = (b: DeckBoard) => cards.filter((c) => c.board === b);
   const base = `/decks/${deckId}`;
+  // A drafted deck is saved as 'limited', and judging 40 cards and a pile of
+  // basics by Commander's rules paints the page red over nothing. It gets the
+  // one rule limited has instead; every other format keeps the Commander
+  // judgement it always had.
+  const limited = deck.format === "limited";
+  const mainCount = byBoard("main").reduce((s, c) => s + c.quantity, 0);
 
   return (
     <Shell
@@ -54,11 +61,22 @@ export default async function DeckPage({
       actions={<ShareControl deckId={deckId} isPublic={deck.is_public} slug={deck.public_slug} />}
       subtitle={
         <>
-          {deck.format} · <span className="stat">{validation.deckSize}</span> cards ·{" "}
-          <span className={validation.legal ? "legal-ok" : "legal-bad"}>
-            {validation.legal ? "legal" : `${validation.errors.length} problem${validation.errors.length === 1 ? "" : "s"}`}
-          </span>{" "}
-          <Identity identity={validation.commanderColorIdentity} />
+          {limited ? (
+            <>
+              {deck.format} · <span className="stat">{mainCount}</span> cards ·{" "}
+              <span className={mainCount >= LIMITED_MIN ? "legal-ok" : "legal-bad"}>
+                {mainCount >= LIMITED_MIN ? "legal" : `${LIMITED_MIN - mainCount} short of ${LIMITED_MIN}`}
+              </span>
+            </>
+          ) : (
+            <>
+              {deck.format} · <span className="stat">{validation.deckSize}</span> cards ·{" "}
+              <span className={validation.legal ? "legal-ok" : "legal-bad"}>
+                {validation.legal ? "legal" : `${validation.errors.length} problem${validation.errors.length === 1 ? "" : "s"}`}
+              </span>{" "}
+              <Identity identity={validation.commanderColorIdentity} />
+            </>
+          )}
           {" · "}
           <span style={{ color: "var(--dim)" }}>
             {usd(cards.reduce((s, c) => s + Number(c.unit_price ?? 0) * c.quantity, 0))}
@@ -93,7 +111,7 @@ export default async function DeckPage({
         <section>
           {DECK_BOARDS.map((board) => {
             const rows = byBoard(board);
-            if (rows.length === 0 && board !== "main" && board !== "commander") return null;
+            if (rows.length === 0 && board !== "main" && (board !== "commander" || limited)) return null;
             const count = rows.reduce((s, c) => s + c.quantity, 0);
             return (
               <div key={board}>
@@ -115,8 +133,9 @@ export default async function DeckPage({
         <aside style={{ display: "grid", gap: "1rem" }}>
           <AddPanel base={base} q={q} scope={scope} results={results} deckId={deckId} />
           <PastePanel deckId={deckId} />
-          <LegalityPanel validation={validation} />
+          {limited ? <LimitedPanel mainCount={mainCount} /> : <LegalityPanel validation={validation} />}
           <CurvePanel cards={cards} />
+          <ExportPanel cards={cards} unresolved={unresolved} base={base} />
           <SettingsPanel deck={deck} deckId={deckId} base={base} />
         </aside>
       </div>

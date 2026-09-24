@@ -2,9 +2,39 @@ import type { validateCommanderDeck } from "@/lib/commander";
 import type { DeckCardDetail } from "@/lib/deck";
 
 /*
- * Read-only panels computed from what the page has already loaded. Neither
- * queries nor posts anything, so neither needs the deck id.
+ * Read-only panels computed from what the page has already loaded. None of
+ * them queries or posts anything, so none needs the deck id.
  */
+
+/** Limited's one deck-construction rule: at least 40 cards, no maximum. */
+export const LIMITED_MIN = 40;
+
+/**
+ * Stands in for the Commander panel on a 'limited' deck — a drafted pool saved
+ * from /drafts. The count is the main board only: a limited sideboard is the
+ * rest of your pool and does not count towards the 40.
+ */
+export function LimitedPanel({ mainCount }: { mainCount: number }) {
+  const short = LIMITED_MIN - mainCount;
+  return (
+    <div className="panel">
+      <h2>Limited</h2>
+      {short <= 0 ? (
+        <p className="legal-ok" style={{ margin: 0, fontSize: 12 }}>
+          {mainCount} cards — at least {LIMITED_MIN}, so legal.
+        </p>
+      ) : (
+        <p style={{ margin: 0, fontSize: 12, color: "var(--yellow)" }}>
+          {mainCount} of {LIMITED_MIN} cards. Add {short} more — usually basic lands,
+          which the search above finds with “all cards”.
+        </p>
+      )}
+      <p style={{ fontSize: 10, color: "var(--dim2)", margin: "0.5rem 0 0" }}>
+        Move the picks you are not playing to the sideboard; it does not count.
+      </p>
+    </div>
+  );
+}
 
 export function LegalityPanel({ validation }: { validation: ReturnType<typeof validateCommanderDeck> }) {
   return (
