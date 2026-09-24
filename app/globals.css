@@ -810,8 +810,11 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
    JavaScript off. */
 .pack-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
-  gap: 0.9rem;
+  /* 124px is the narrowest a card image stays readable at; it is what fits a
+     14-card pack in three rows beside the picks panel on a laptop screen, so
+     the whole pack can be weighed without scrolling. */
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 0.75rem;
   animation: pack-in 0.32s ease-out both;
 }
 @keyframes pack-in { from { opacity: 0; transform: translateY(8px); } }

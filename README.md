@@ -32,7 +32,7 @@ more.
 | Booster drafting (`lib/draft/`, `/drafts`) | Done — 2–8 seats, bots for empty ones, invite links, playable with JavaScript off |
 | Deck export (`lib/deck/export.ts`, `/decks/[id]/export`) | Done — Arena/MTGO text for untap.in, copy or download |
 
-347 tests pass without a database and 510 with one; `tsc --noEmit` is clean and
+414 tests pass without a database and 598 with one; `tsc --noEmit` is clean and
 `next build --webpack` is warning-free. CI (`.github/workflows/ci.yml`) holds
 all three to that on every push and pull request: the suite runs against
 Postgres 17 and fails if any database test skips or leaves its database behind,
