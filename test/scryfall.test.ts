@@ -221,6 +221,30 @@ describe("card row mapping", () => {
     assert.equal(row.length, CARD_COLUMNS.length);
   });
 
+  it("carries Scryfall's booster flag and set_type through (0008_drafts.sql)", () => {
+    // Makindi is a real booster card of an expansion; Growing Ranks is from a
+    // Commander precon, which Scryfall marks booster: false.
+    assert.equal(col(toCardRow(find(MAKINDI)), "booster"), true);
+    assert.equal(col(toCardRow(find(MAKINDI)), "set_type"), "expansion");
+    assert.equal(col(toCardRow(find(GROWING_RANKS)), "booster"), false);
+    assert.equal(col(toCardRow(find(GROWING_RANKS)), "set_type"), "commander");
+  });
+
+  it("stores an absent booster or set_type as NULL, never as false", () => {
+    // lib/draft reads a set whose rows are all NULL as "unknown, use every
+    // row". A missing key coerced to false would instead make the set look
+    // like it has no booster cards at all.
+    const { booster: _b, set_type: _t, ...bare } = find(GROWING_RANKS);
+    const row = toCardRow(bare);
+    assert.equal(col(row, "booster"), null);
+    assert.equal(col(row, "set_type"), null);
+    assert.equal(row.length, CARD_COLUMNS.length);
+
+    const odd = toCardRow({ ...find(GROWING_RANKS), booster: "true", set_type: "" });
+    assert.equal(col(odd, "booster"), null, "only a real boolean is a known booster flag");
+    assert.equal(col(odd, "set_type"), null, "an empty set_type is unknown, like other blank strings");
+  });
+
   it("rejects rows that cannot fill a NOT NULL column", () => {
     const ok = find(GROWING_RANKS);
     assert.throws(() => toCardRow({ ...ok, id: undefined }), /missing required field 'id'/);
@@ -428,6 +452,14 @@ describe("refresh against postgres", { skip: SKIP_WITHOUT_DATABASE }, () => {
     assert.equal(makindi.prices.usd, "0.20");
     assert.deepEqual(makindi.finishes, ["nonfoil", "foil"]);
     assert.equal(makindi.released_at.toISOString().slice(0, 10), "2020-09-25");
+  });
+
+  it("stored booster and set_type for the draft engine", async () => {
+    const rows = await q("SELECT id::text AS id, booster, set_type FROM scryfall_cards ORDER BY id");
+    const byId = new Map(rows.map((r: any) => [r.id, r]));
+    assert.deepEqual(byId.get(MAKINDI), { id: MAKINDI, booster: true, set_type: "expansion" });
+    assert.deepEqual(byId.get(GROWING_RANKS), { id: GROWING_RANKS, booster: false, set_type: "commander" });
+    assert.deepEqual(byId.get(ADRIX), { id: ADRIX, booster: false, set_type: "box" });
   });
 
   it("exits early without downloading when source_updated_at has not moved", async () => {

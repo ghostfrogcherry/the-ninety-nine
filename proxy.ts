@@ -32,7 +32,11 @@ export default auth;
  * The matcher is the real security boundary here, and it is an ALLOW-list of
  * things to guard rather than a deny-list of things to skip.
  *
- * Guarded:   /collections, /decks and everything beneath them.
+ * Guarded:   /collections, /decks, /drafts and everything beneath them —
+ *            including the draft invite page /drafts/join/:slug. The slug
+ *            only names a pod; taking a seat needs an account on this box,
+ *            and a signed-out visitor is sent to /signin with a callbackUrl
+ *            that brings them back to the invite (lib/auth/callback.ts).
  * Untouched: /d/:slug   — public deck share links are a v1 feature. They are
  *                         not "forgotten", they are deliberately anonymous.
  *            /api/auth/* — sign-in itself cannot require being signed in.
@@ -44,5 +48,9 @@ export default auth;
  * are listed anyway rather than relying on that.
  */
 export const config = {
-  matcher: ["/collections", "/collections/:path*", "/decks", "/decks/:path*"],
+  matcher: [
+    "/collections", "/collections/:path*",
+    "/decks", "/decks/:path*",
+    "/drafts", "/drafts/:path*",
+  ],
 };

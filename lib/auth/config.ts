@@ -19,7 +19,13 @@ import type { NextAuthConfig } from "next-auth";
  * reads is the one the route handlers wrote.
  */
 
-export const PROTECTED_PREFIXES = ["/collections", "/decks"] as const;
+/**
+ * Must name the same paths as the matcher in `proxy.ts`: a path the matcher
+ * guards but this list omits reaches `authorized` and is waved through.
+ * `/drafts` covers the pods, the table and the invite page alike — an invite
+ * is not public the way a `/d/` share link is.
+ */
+export const PROTECTED_PREFIXES = ["/collections", "/decks", "/drafts"] as const;
 
 /**
  * Routes that must stay reachable signed-out. Public share links are v1.

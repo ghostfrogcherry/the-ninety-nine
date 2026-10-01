@@ -14,7 +14,7 @@ see Conventions.
 ## Commands
 
 ```sh
-npm test                 # 347 pure tests; 510 with TEST_DATABASE_URL set
+npm test                 # 414 pure tests; 598 with TEST_DATABASE_URL set
 npm run typecheck        # must be clean
 npm run build            # next build --webpack; must be warning-free
 node scripts/migrate.mjs [--status|--dry-run|--baseline[=VERSION]]
@@ -68,13 +68,19 @@ because pg_dump must match its server and the app image has no Postgres client.
   feature works with JavaScript off, and that is a design commitment, not an
   accident: it is why deck deletion is confirmed by typing the deck's name
   rather than by `confirm()`, and why the price chart's hover layer is CSS and
-  `<title>` rather than a handler. There are exactly **three** `"use client"`
-  files, and adding a fourth needs a comment saying why:
+  `<title>` rather than a handler. There are exactly **four** `"use client"`
+  files, and adding a fifth needs a comment saying why:
   - `app/error.tsx`, `app/global-error.tsx` — React error boundaries cannot be
     server components.
   - `app/collections/[id]/_feed.tsx` — infinite scroll over a collection too
     large to ship in one payload. The page renders the first page server-side,
     so the list still works without it.
+  - `app/drafts/[id]/_live.tsx` — progressive enhancement for the draft table,
+    because the user asked for it to feel smooth: `router.refresh()` polling
+    while you wait (paused in a hidden tab; `<noscript><meta refresh>` is the
+    no-JS path), a `useFormStatus` pending state on the picked card that also
+    stops a double click, and a copy button for the invite that renders
+    nothing without JS. Everything it does works without it.
 
   Count them with `grep -rlE '^"use client"' app`, not a bare grep:
   `prices/_chart.tsx` mentions the directive in a comment.
@@ -165,7 +171,8 @@ isolation guard. Prefix the same binaries with
 
 ## State, as of the last commit on this branch
 
-Roadmap complete except deployment. 347 pure tests, 510 against Postgres, clean
+Roadmap complete except deployment, plus booster drafting. 414 pure tests, 598
+against Postgres, clean
 typecheck, warning-free build, CI green including a real `docker compose up`.
 
 Built and exercised: collection import (CLI, HTTP and browser, 2 MB both ways),
@@ -187,6 +194,33 @@ but has never met a real collection, a real 78 MB mirror, or real hardware.
 - The shared pool in `lib/db` has an `error` listener. Without it a Postgres
   restart logged every idle client as an `uncaughtException` with its
   connection details.
+
+### Drafting
+
+`lib/draft/` (engine: `packs.ts` eligibility, packs and the bot; `table.ts` the
+position rule; `index.ts` SQL and transactions) and `app/drafts/` (pages).
+
+- **Every draft write locks the `drafts` row `FOR UPDATE` first.** That one
+  lock is the whole concurrency story: simultaneous picks, double clicks and
+  back-button resubmits queue on it, and `draft_cards_one_pick_idx` backs it up.
+- **Position rule:** a seat that has made n picks is on round n / pack_size,
+  pick n % pack_size, and holds the pack opened by seat (s − p·dir) mod seats,
+  dir +1 on even rounds. It may pick iff that pack has exactly p cards gone.
+- **Bots pick in memory** and every pick a human pick releases is written in one
+  UPDATE; the pages poll `loadSeatState` (3 queries) every few seconds, so keep
+  both cheap. Measured: ~10 ms for a pick that sets off 7 bots.
+- **Pack eligibility needs the mirror's `booster` flag** (0008). A set whose
+  rows all have NULL falls back to every printing; after 0008 lands, run the
+  refresh once with `--force` or packs fill with showcase and promo frames.
+- Sets are offered at ≥45 eligible cards (`MIN_DRAFTABLE_CARDS`); token,
+  memorabilia, digital and promo set types never.
+- A seat can save its picks (format `limited`, all in main) once its own last
+  pick is made. `limited` decks get a 40-card check instead of Commander's.
+- Sign-in now honours `callbackUrl`, path only (`lib/auth/callback.ts`), which
+  is what brings a signed-out friend back to an invite.
+- Deck export (`lib/deck/export.ts`, `/decks/[id]/export`) is Arena/MTGO text
+  for untap.in. Its exact import grammar was not checked — their docs were
+  unreachable from the sandbox — so confirm with a real paste.
 
 ### What is genuinely next
 

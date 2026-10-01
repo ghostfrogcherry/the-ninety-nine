@@ -17,6 +17,7 @@ export function Shell({ title, subtitle, actions, account, children }: {
         <Link href="/" className="brand">the·ninety·nine</Link>
         <Link href="/collections">collections</Link>
         <Link href="/decks">decks</Link>
+        <Link href="/drafts">drafts</Link>
         {account}
       </nav>
 
